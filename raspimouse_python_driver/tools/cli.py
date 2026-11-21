@@ -24,7 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help='LED numbers 0-3 (default: all)')
     led.add_argument('--duration', type=float, default=1.0, help='[s] (default: 1.0)')
 
-    sub.add_parser('switch', help='print switch states')
+    switch = sub.add_parser('switch', help='print switch states')
+    switch.add_argument('--watch', action='store_true',
+                        help='keep printing whenever a state changes')
+    switch.add_argument('--duration', type=float, default=10.0,
+                        help='[s] how long to watch (default: 10.0)')
     sub.add_parser('sensor', help='print light sensor values')
 
     buzzer = sub.add_parser('buzzer', help='sound the buzzer (0 stops)')
@@ -54,8 +58,31 @@ def _led(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_switches(states: tuple[bool, ...]) -> str:
+    return ', '.join(
+        f'{i}: {"pressed" if pressed else "released"}' for i, pressed in enumerate(states))
+
+
+def _switch(args: argparse.Namespace) -> int:
+    with RaspiMouse() as mouse:
+        start = time.monotonic()
+        last = tuple(sw.is_pressed() for sw in mouse.switches)
+        print(f'{0.0:6.2f} s  {_format_switches(last)}', flush=True)
+        if not args.watch:
+            return 0
+        while time.monotonic() - start < args.duration:
+            time.sleep(0.01)
+            states = tuple(sw.is_pressed() for sw in mouse.switches)
+            if states != last:
+                elapsed = time.monotonic() - start
+                print(f'{elapsed:6.2f} s  {_format_switches(states)}', flush=True)
+                last = states
+    return 0
+
+
 _COMMANDS = {
     'led': _led,
+    'switch': _switch,
 }
 
 

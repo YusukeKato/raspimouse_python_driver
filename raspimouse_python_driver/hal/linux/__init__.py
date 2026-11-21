@@ -41,7 +41,7 @@ class LinuxBackend:
 
     def digital_input(self, pin: int, pull_up: bool = False) -> LgpioDigitalInput:
         """Claim a GPIO line as input."""
-        raise NotImplementedError
+        return LgpioDigitalInput(self._get_chip_handle(), pin, pull_up)
 
     def software_pwm(self, pin: int) -> LgpioSoftwarePwm:
         """Claim a GPIO line for software PWM."""

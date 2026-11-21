@@ -30,15 +30,28 @@ class MockDigitalOutput:
 
 
 class MockDigitalInput:
-    """Fake GPIO input whose level is set by the test."""
+    """
+    Fake GPIO input whose level is set by the test.
+
+    The level starts high with pull-up and low without, like an open line.
+    """
+
+    def __init__(self, pin: int, pull_up: bool = False) -> None:
+        """Create the fake."""
+        self.pin = pin
+        self.pull_up = pull_up
+        self.level = pull_up
+        self.closed = False
 
     def read(self) -> bool:
         """Return the level set by the test."""
-        raise NotImplementedError
+        if self.closed:
+            raise DeviceError(f'GPIO{self.pin} is already closed')
+        return self.level
 
     def close(self) -> None:
         """Mark as closed."""
-        raise NotImplementedError
+        self.closed = True
 
 
 class MockSpiDevice:
@@ -91,20 +104,28 @@ class MockBackend:
     def __init__(self) -> None:
         """Create the backend."""
         self.outputs: dict[int, MockDigitalOutput] = {}
+        self.inputs: dict[int, MockDigitalInput] = {}
+        self.closed = False
+
+    def _claim(self, pin: int) -> None:
+        for lines in (self.outputs, self.inputs):
+            if pin in lines and not lines[pin].closed:
+                raise DeviceError(f'GPIO{pin} is already in use')
         self.closed = False
 
     def digital_output(self, pin: int, initial: bool = False) -> MockDigitalOutput:
         """Create a fake output for ``pin``."""
-        if pin in self.outputs and not self.outputs[pin].closed:
-            raise DeviceError(f'GPIO{pin} is already in use')
-        self.closed = False
+        self._claim(pin)
         output = MockDigitalOutput(pin, initial)
         self.outputs[pin] = output
         return output
 
     def digital_input(self, pin: int, pull_up: bool = False) -> MockDigitalInput:
         """Create a fake input for ``pin``."""
-        raise NotImplementedError
+        self._claim(pin)
+        line = MockDigitalInput(pin, pull_up)
+        self.inputs[pin] = line
+        return line
 
     def software_pwm(self, pin: int) -> MockPwmChannel:
         """Create a fake PWM output for ``pin``."""
@@ -124,6 +145,6 @@ class MockBackend:
 
     def close(self) -> None:
         """Close all fakes."""
-        for output in self.outputs.values():
-            output.close()
+        for line in (*self.outputs.values(), *self.inputs.values()):
+            line.close()
         self.closed = True

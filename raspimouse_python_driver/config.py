@@ -91,7 +91,7 @@ class RaspiMouseConfig:
     # GPIO chip number (/dev/gpiochipN).
     gpio_chip: int = 0
     led_pins: tuple[int, ...] = (25, 24, 23, 18)
-    # Switches SW1-SW3. Pulled up; pressed reads low.
+    # Switches 0-2 (rtswitch0-2 of the kernel driver). Pulled up; pressed reads low.
     switch_pins: tuple[int, ...] = (20, 26, 21)
     light_sensors: LightSensorConfig = field(default_factory=LightSensorConfig)
     motors: MotorConfig = field(default_factory=MotorConfig)

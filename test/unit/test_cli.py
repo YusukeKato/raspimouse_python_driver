@@ -27,3 +27,17 @@ def test_device_error_is_reported(lgpio, capsys):
     lgpio.busy_pins.add(25)
     assert cli.main(['led', '--duration', '0']) == 1
     assert 'GPIO25' in capsys.readouterr().err
+
+
+def test_switch_prints_states_once(lgpio, capsys):
+    lgpio.levels[21] = 0  # switch 2 pressed
+    assert cli.main(['switch']) == 0
+    out = capsys.readouterr().out
+    assert out.count('\n') == 1
+    assert '0: released, 1: released, 2: pressed' in out
+    assert lgpio.calls[-1] == ('gpiochip_close', lgpio.chip_handle)
+
+
+def test_switch_watch_ends_after_duration(lgpio, capsys):
+    assert cli.main(['switch', '--watch', '--duration', '0']) == 0
+    assert '0: released, 1: released, 2: released' in capsys.readouterr().out

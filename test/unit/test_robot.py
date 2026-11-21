@@ -42,3 +42,15 @@ def test_open_twice_and_reopen():
     mouse.open()  # can be opened again after close
     assert len(mouse.leds) == 4
     mouse.close()
+
+
+def test_open_creates_switches_with_pull_up():
+    backend = MockBackend()
+    with RaspiMouse(backend=backend) as mouse:
+        assert len(mouse.switches) == 3
+        assert list(backend.inputs) == list(RaspiMouseConfig().switch_pins)
+        assert all(line.pull_up for line in backend.inputs.values())
+        backend.inputs[RaspiMouseConfig().switch_pins[2]].level = False
+        assert [sw.is_pressed() for sw in mouse.switches] == [False, False, True]
+    assert mouse.switches == ()
+    assert all(line.closed for line in backend.inputs.values())

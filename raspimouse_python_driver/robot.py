@@ -62,6 +62,9 @@ class RaspiMouse:
             self.leds = tuple(
                 Led(self._backend.digital_output(pin, initial=False))
                 for pin in self.config.led_pins)
+            self.switches = tuple(
+                Switch(self._backend.digital_input(pin, pull_up=True))
+                for pin in self.config.switch_pins)
             # TODO: create the other devices as they are implemented.
         except BaseException:
             self.close()
@@ -74,10 +77,12 @@ class RaspiMouse:
         Calling this more than once is allowed.
         """
         # TODO: stop the motors and turn off the motor power first.
-        leds, self.leds = self.leds, ()
+        devices = (*self.leds, *self.switches)
+        self.leds = ()
+        self.switches = ()
         try:
-            for led in leds:
-                led.close()
+            for device in devices:
+                device.close()
         finally:
             if self._backend is not None:
                 self._backend.close()
