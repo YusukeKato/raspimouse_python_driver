@@ -1,0 +1,18 @@
+# Sample settings for /boot/firmware/config.txt (Raspberry Pi 4)
+# to use raspimouse_python_driver. Not verified on real hardware yet.
+#
+# Remove the settings for the rtmouse kernel module, especially
+#   dtoverlay=anyspi:spi0-0,dev="microchip,mcp3204",speed=1000000
+# so that /dev/spidev0.0 is created instead.
+
+# SPI0 -> /dev/spidev0.0 (MCP3204)
+dtparam=spi=on
+
+# I2C1 -> /dev/i2c-1 (pulse counters)
+dtparam=i2c_arm=on
+dtparam=i2c_baudrate=62500
+
+# Hardware PWM for the stepper motors -> /sys/class/pwm/pwmchip0
+#   GPIO12 (ALT0, func=4) -> channel 0: left motor
+#   GPIO13 (ALT0, func=4) -> channel 1: right motor
+dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
