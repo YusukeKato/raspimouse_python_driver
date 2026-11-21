@@ -14,7 +14,7 @@ def test_led_turns_on_given_leds_then_off(lgpio, capsys):
 def test_led_defaults_to_all(lgpio):
     assert cli.main(['led', '--duration', '0']) == 0
     lit = [c[2] for c in lgpio.calls if c[0] == 'gpio_write' and c[3] == 1]
-    assert lit == [25, 24, 23, 18]
+    assert [pin for pin in lit if pin in (25, 24, 23, 18)] == [25, 24, 23, 18]
 
 
 def test_led_rejects_invalid_number(lgpio, capsys):
@@ -66,3 +66,32 @@ def test_sensor_prints_values_once(lgpio, capsys):
     assert out.count('\n') == 1
     assert 'RF     0  R     0  L     0  LF     0' in out
     assert ('spi_close', lgpio.spi_handle) in lgpio.calls
+
+
+def test_motor_runs_then_stops_and_cuts_power(lgpio, sysfs_pwm, capsys):
+    assert cli.main(['motor', '400', '-200', '--duration', '0']) == 0
+    handle = lgpio.chip_handle
+    enable = [c[3] for c in lgpio.calls if c[0] == 'gpio_write' and c[2] == 5]
+    assert enable[0] == 1 and enable[-1] == 0
+    assert ('gpio_write', handle, 6, 0) in lgpio.calls  # right motor backward
+    assert (sysfs_pwm / 'pwm0' / 'period').read_text().strip() == '2500000'
+    assert (sysfs_pwm / 'pwm1' / 'period').read_text().strip() == '5000000'
+    for channel in ('pwm0', 'pwm1'):
+        assert (sysfs_pwm / channel / 'enable').read_text().strip() == '0'
+    assert 'left 400 Hz, right -200 Hz' in capsys.readouterr().out
+
+
+def test_check_exit_code(monkeypatch, capsys):
+    from raspimouse_python_driver.tools import check
+    failure = check.CheckResult(check.FAIL, 'bad', 'fix it')
+    monkeypatch.setattr(check, 'run_checks', lambda: [failure])
+    assert cli.main(['check']) == 1
+    assert '[FAIL] bad' in capsys.readouterr().out
+    monkeypatch.setattr(check, 'run_checks', lambda: [check.CheckResult(check.WARN, 'meh')])
+    assert cli.main(['check']) == 0
+
+
+def test_device_error_suggests_check(lgpio, capsys):
+    lgpio.busy_pins.add(25)
+    cli.main(['led', '--duration', '0'])
+    assert 'raspimouse-cli check' in capsys.readouterr().err

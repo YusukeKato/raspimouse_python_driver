@@ -56,8 +56,8 @@ class LinuxBackend:
         raise NotImplementedError
 
     def pwm_channel(self, chip: int, channel: int) -> SysfsPwmChannel:
-        """Open a hardware PWM channel."""
-        raise NotImplementedError
+        """Open a hardware PWM channel. The caller closes it."""
+        return SysfsPwmChannel(chip, channel)
 
     def close(self) -> None:
         """

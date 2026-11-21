@@ -1,0 +1,7 @@
+# Let members of the "gpio" group use hardware PWM through sysfs
+# (/sys/class/pwm) without root. Needed for the motors.
+#
+#   sudo cp config/99-raspimouse-pwm.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#   sudo usermod -aG gpio $USER   # if not a member yet, then log in again
+SUBSYSTEM=="pwm*", PROGRAM="/bin/sh -c 'chown -R root:gpio /sys/class/pwm && chmod -R 770 /sys/class/pwm; chown -R root:gpio /sys/devices/platform/soc/*.pwm/pwm/pwmchip* && chmod -R 770 /sys/devices/platform/soc/*.pwm/pwm/pwmchip*'"

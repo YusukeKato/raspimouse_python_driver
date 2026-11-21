@@ -1,7 +1,8 @@
 # Sample settings for /boot/firmware/config.txt (Raspberry Pi 4)
-# to use raspimouse_python_driver. Not verified on real hardware yet.
+# to use raspimouse_python_driver. Reboot after changing them, then run
+#   python3 -m raspimouse_python_driver.tools.cli check
 #
-# Remove the settings for the rtmouse kernel module, especially
+# Comment out the overlay added for the rtmouse kernel module
 #   dtoverlay=anyspi:spi0-0,dev="microchip,mcp3204",speed=1000000
 # so that /dev/spidev0.0 is created instead.
 

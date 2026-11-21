@@ -2,7 +2,9 @@ import pytest
 
 from raspimouse_python_driver import RaspiMouse, RaspiMouseConfig
 from raspimouse_python_driver.exceptions import DeviceError
-from raspimouse_python_driver.hal.mock import MockBackend
+from raspimouse_python_driver.hal.mock import MockBackend, MockPwmChannel
+
+LED_PINS = RaspiMouseConfig().led_pins
 
 
 def test_open_creates_leds_on_configured_pins():
@@ -10,15 +12,15 @@ def test_open_creates_leds_on_configured_pins():
     with RaspiMouse(backend=backend) as mouse:
         assert len(mouse.leds) == 4
         assert set(RaspiMouseConfig().led_pins) <= set(backend.outputs)
-        assert all(output.value is False for output in backend.outputs.values())
+        assert all(backend.outputs[pin].value is False for pin in LED_PINS)
 
 
 def test_led_index_matches_pin_order():
     backend = MockBackend()
     with RaspiMouse(backend=backend) as mouse:
         mouse.leds[0].on()
-        lit = [pin for pin, output in backend.outputs.items() if output.value]
-    assert lit == [RaspiMouseConfig().led_pins[0]]
+        lit = [pin for pin in LED_PINS if backend.outputs[pin].value]
+    assert lit == [LED_PINS[0]]
 
 
 def test_close_turns_off_leds_and_closes_backend():
@@ -30,9 +32,9 @@ def test_close_turns_off_leds_and_closes_backend():
     mouse.close()
     assert mouse.leds == ()
     assert backend.closed
-    for output in backend.outputs.values():
-        assert output.value is False
-        assert output.closed
+    for pin in LED_PINS:
+        assert backend.outputs[pin].value is False
+    assert all(output.closed for output in backend.outputs.values())
     mouse.close()  # second close is allowed
 
 
@@ -95,3 +97,34 @@ def test_open_creates_light_sensors():
         assert len(spi.transfers) == 8  # 4 channels x (ambient, lit)
     assert mouse.light_sensors is None
     assert spi.closed
+
+
+def test_open_creates_motors_unpowered():
+    backend = MockBackend()
+    config = RaspiMouseConfig().motors
+    with RaspiMouse(backend=backend) as mouse:
+        assert backend.outputs[config.enable_pin].value is False
+        assert backend.outputs[config.left.direction_pin].value is config.left.forward_level
+        assert backend.outputs[config.right.direction_pin].value is config.right.forward_level
+        mouse.motor_power.on()
+        mouse.motors.set_frequency(400, -400)
+        left = backend.hardware_pwms[(config.pwm_chip, config.left.pwm_channel)]
+        right = backend.hardware_pwms[(config.pwm_chip, config.right.pwm_channel)]
+        assert left.frequency_hz == right.frequency_hz == 400
+        assert backend.outputs[config.right.direction_pin].value is not config.right.forward_level
+    # Leaving the block stops the motors and cuts the power.
+    assert not left.running and not right.running
+    assert left.closed and right.closed
+    assert backend.outputs[config.enable_pin].value is False
+    assert mouse.motors is None and mouse.motor_power is None
+
+
+def test_motor_open_failure_closes_left_motor():
+    backend = MockBackend()
+    config = RaspiMouseConfig().motors
+    # The right channel is already in use, so opening it fails.
+    backend.hardware_pwms[(config.pwm_chip, config.right.pwm_channel)] = MockPwmChannel()
+    with pytest.raises(DeviceError):
+        RaspiMouse(backend=backend).open()
+    assert backend.hardware_pwms[(config.pwm_chip, config.left.pwm_channel)].closed
+    assert backend.closed

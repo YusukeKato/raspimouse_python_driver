@@ -95,8 +95,39 @@ class FakeLgpio(types.ModuleType):
         return 0
 
 
+def make_sysfs_pwm(root, chip=0, channels=2, exported=True):
+    """Create a fake /sys/class/pwm with pwmchip{chip} and its channels."""
+    chip_dir = root / f'pwmchip{chip}'
+    chip_dir.mkdir(parents=True)
+    for name in ('export', 'unexport'):
+        (chip_dir / name).write_text('')
+    (chip_dir / 'npwm').write_text(f'{channels}\n')
+    if exported:
+        for channel in range(channels):
+            pwm = chip_dir / f'pwm{channel}'
+            pwm.mkdir()
+            for name in ('period', 'duty_cycle', 'enable'):
+                (pwm / name).write_text('0\n')
+    return chip_dir
+
+
+@pytest.fixture(name='make_sysfs_pwm')
+def make_sysfs_pwm_fixture():
+    """Return :func:`make_sysfs_pwm` for tests that build their own tree."""
+    return make_sysfs_pwm
+
+
 @pytest.fixture
-def lgpio(monkeypatch):
+def sysfs_pwm(tmp_path, monkeypatch):
+    """Point the sysfs PWM backend at a fake tree; return pwmchip0."""
+    root = tmp_path / 'pwm'
+    chip_dir = make_sysfs_pwm(root)
+    monkeypatch.setattr('raspimouse_python_driver.hal.linux.pwm.SYSFS_PWM_ROOT', root)
+    return chip_dir
+
+
+@pytest.fixture
+def lgpio(monkeypatch, sysfs_pwm):
     fake = FakeLgpio()
     monkeypatch.setitem(sys.modules, 'lgpio', fake)
     return fake

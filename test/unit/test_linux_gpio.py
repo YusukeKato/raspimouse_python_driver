@@ -51,8 +51,9 @@ def test_raspimouse_leds_through_lgpio(lgpio):
     outputs = [c[2] for c in lgpio.calls if c[0] == 'gpio_claim_output']
     inputs = [c[2] for c in lgpio.calls if c[0] == 'gpio_claim_input']
     freed = [c[2] for c in lgpio.calls if c[0] == 'gpio_free']
-    # LEDs, the buzzer and the light sensor emitters (right, left, right front, left front).
-    assert outputs == [25, 24, 23, 18, 19, 22, 4, 27, 17]
+    # Motor power, motor directions (left, right), LEDs, the buzzer and
+    # the light sensor emitters (right, left, right front, left front).
+    assert outputs == [5, 16, 6, 25, 24, 23, 18, 19, 22, 4, 27, 17]
     assert inputs == [20, 26, 21]
     assert sorted(freed) == sorted(outputs + inputs)
     assert ('gpio_write', lgpio.chip_handle, 25, 1) in lgpio.calls

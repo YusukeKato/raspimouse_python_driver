@@ -5,7 +5,7 @@ from .devices.buzzer import Buzzer
 from .devices.led import Led
 from .devices.light_sensor import LightSensors, READ_ORDER
 from .devices.mcp3204 import Mcp3204
-from .devices.motor import MotorPower, Motors
+from .devices.motor import MotorPower, Motors, StepperMotor
 from .devices.pulse_counter import PulseCounter
 from .devices.switch import Switch
 from .hal.interfaces import Backend
@@ -60,6 +60,10 @@ class RaspiMouse:
             self._backend = LinuxBackend(gpio_chip=self.config.gpio_chip)
         self._is_open = True
         try:
+            # Motor power first, so that the motor drivers are off as early as possible.
+            self.motor_power = MotorPower(
+                self._backend.digital_output(self.config.motors.enable_pin, initial=False))
+            self.motors = self._open_motors()
             self.leds = tuple(
                 Led(self._backend.digital_output(pin, initial=False))
                 for pin in self.config.led_pins)
@@ -80,10 +84,14 @@ class RaspiMouse:
 
         Calling this more than once is allowed.
         """
-        # TODO: stop the motors and turn off the motor power first.
-        devices = (*([self.buzzer] if self.buzzer else []),
+        # Stop the motors and cut their power first.
+        devices = (*([self.motors] if self.motors else []),
+                   *([self.motor_power] if self.motor_power else []),
+                   *([self.buzzer] if self.buzzer else []),
                    *([self.light_sensors] if self.light_sensors else []),
                    *self.leds, *self.switches)
+        self.motors = None
+        self.motor_power = None
         self.buzzer = None
         self.light_sensors = None
         self.leds = ()
@@ -102,6 +110,22 @@ class RaspiMouse:
             self._is_open = False
         if error is not None:
             raise error
+
+    def _open_motors(self) -> Motors:
+        config = self.config.motors
+        motors = []
+        try:
+            for channel in (config.left, config.right):
+                direction = self._backend.digital_output(
+                    channel.direction_pin, initial=channel.forward_level)
+                # The hardware PWM is not freed with the backend, so close it on failure.
+                pwm = self._backend.pwm_channel(config.pwm_chip, channel.pwm_channel)
+                motors.append(StepperMotor(pwm, direction, channel, config))
+        except BaseException:
+            for motor in motors:
+                motor.close()
+            raise
+        return Motors(*motors)
 
     def _open_light_sensors(self) -> LightSensors:
         config = self.config.light_sensors

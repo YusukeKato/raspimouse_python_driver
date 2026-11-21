@@ -165,6 +165,8 @@ class MockBackend:
         # Keyed by (bus, chip_select). New devices answer with spi_responder.
         self.spi_devices: dict[tuple[int, int], MockSpiDevice] = {}
         self.spi_responder: Callable[[bytes], bytes] | None = None
+        # Hardware PWM keyed by (chip, channel).
+        self.hardware_pwms: dict[tuple[int, int], MockPwmChannel] = {}
         self.closed = False
 
     def _claim(self, pin: int) -> None:
@@ -208,8 +210,13 @@ class MockBackend:
         raise NotImplementedError
 
     def pwm_channel(self, chip: int, channel: int) -> MockPwmChannel:
-        """Create a fake PWM channel."""
-        raise NotImplementedError
+        """Create a fake hardware PWM channel. Like the real backend, close() does not close it."""
+        key = (chip, channel)
+        if key in self.hardware_pwms and not self.hardware_pwms[key].closed:
+            raise DeviceError(f'pwmchip{chip}/pwm{channel} is already in use')
+        pwm = MockPwmChannel()
+        self.hardware_pwms[key] = pwm
+        return pwm
 
     def close(self) -> None:
         """Close all fakes."""

@@ -8,6 +8,7 @@ import argparse
 import sys
 import time
 
+from . import check
 from ..config import RaspiMouseConfig
 from ..exceptions import RaspiMouseError
 from ..robot import RaspiMouse
@@ -18,6 +19,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='raspimouse-cli', description='Check Raspberry Pi Mouse devices.')
     sub = parser.add_subparsers(dest='command', required=True)
+
+    sub.add_parser('check', help='check the Raspberry Pi setup and print how to fix problems')
 
     led = sub.add_parser('led', help='turn LEDs on for a while')
     led.add_argument('index', type=int, nargs='*',
@@ -42,10 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     buzzer.add_argument('--duration', type=float, default=0.5,
                         help='[s] length of each frequency (default: 0.5)')
 
-    motor = sub.add_parser('motor', help='run the motors for a while')
-    motor.add_argument('left', type=int, help='signed frequency [Hz]')
-    motor.add_argument('right', type=int, help='signed frequency [Hz]')
-    motor.add_argument('--duration', type=float, default=1.0, help='[s]')
+    motor = sub.add_parser('motor', help='run the motors for a while (the robot moves!)')
+    motor.add_argument('left', type=float, help='signed step frequency [Hz]')
+    motor.add_argument('right', type=float, help='signed step frequency [Hz]')
+    motor.add_argument('--duration', type=float, default=1.0, help='[s] (default: 1.0)')
 
     sub.add_parser('counter', help='print pulse counter values')
     return parser
@@ -115,11 +118,31 @@ def _sensor(args: argparse.Namespace) -> int:
             time.sleep(args.interval)
 
 
+def _motor(args: argparse.Namespace) -> int:
+    with RaspiMouse() as mouse:
+        mouse.motor_power.on()
+        mouse.motors.set_frequency(args.left, args.right)
+        print(f'left {mouse.motors.left.frequency_hz:g} Hz, '
+              f'right {mouse.motors.right.frequency_hz:g} Hz for {args.duration} s', flush=True)
+        time.sleep(args.duration)
+        mouse.motors.stop()
+        mouse.motor_power.off()
+    return 0
+
+
+def _check(args: argparse.Namespace) -> int:
+    results = check.run_checks()
+    print(check.format_results(results))
+    return 1 if any(r.level == check.FAIL for r in results) else 0
+
+
 _COMMANDS = {
+    'check': _check,
     'led': _led,
     'switch': _switch,
     'buzzer': _buzzer,
     'sensor': _sensor,
+    'motor': _motor,
 }
 
 
@@ -134,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         return command(args)
     except RaspiMouseError as e:
         print(f'error: {e}', file=sys.stderr)
+        print('hint: run "raspimouse-cli check" to find setup problems', file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130

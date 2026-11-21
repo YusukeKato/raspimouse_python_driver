@@ -1,6 +1,9 @@
 """Stepper motors and motor power."""
 
+import threading
+
 from ..config import MotorChannelConfig, MotorConfig
+from ..exceptions import DeviceError
 from ..hal.interfaces import DigitalOutput, PwmChannel
 
 
@@ -20,28 +23,66 @@ class StepperMotor:
         self._direction = direction
         self._channel = channel
         self._config = config
+        self._frequency_hz: float = 0
+        self._is_forward = True
+        self._lock = threading.Lock()
+        self._closed = False
+        self._direction.write(channel.forward_level)
 
-    def set_frequency(self, frequency_hz: int) -> None:
+    def set_frequency(self, frequency_hz: float) -> None:
         """Set the signed step frequency [Hz]."""
-        raise NotImplementedError
+        with self._lock:
+            self._check_open()
+            magnitude = abs(frequency_hz)
+            if magnitude < self._config.min_frequency_hz:
+                self._stop()
+                return
+            magnitude = min(magnitude, self._config.max_frequency_hz)
+            forward = frequency_hz > 0
+            if forward != self._is_forward:
+                # forward_level is the level for forward; backward is the opposite.
+                self._direction.write(self._channel.forward_level == forward)
+                self._is_forward = forward
+            self._pwm.set_frequency(magnitude, 0.5)
+            self._frequency_hz = magnitude if forward else -magnitude
 
     @property
-    def frequency_hz(self) -> int:
+    def frequency_hz(self) -> float:
         """Return the last applied signed frequency (0 when stopped)."""
-        raise NotImplementedError
+        return self._frequency_hz
 
     @property
     def is_forward(self) -> bool:
         """Return True if the last applied direction is forward."""
-        raise NotImplementedError
+        return self._is_forward
 
     def stop(self) -> None:
         """Stop step pulses."""
-        raise NotImplementedError
+        with self._lock:
+            self._check_open()
+            self._stop()
 
     def close(self) -> None:
-        """Stop and release resources."""
-        raise NotImplementedError
+        """Stop and release resources. Calling this more than once is allowed."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                self._stop()
+            finally:
+                try:
+                    self._pwm.close()
+                finally:
+                    self._direction.close()
+
+    def _stop(self) -> None:
+        self._pwm.stop()
+        self._frequency_hz = 0
+
+    def _check_open(self) -> None:
+        if self._closed:
+            raise DeviceError('motor is already closed')
 
 
 class Motors:
@@ -52,39 +93,64 @@ class Motors:
         self.left = left
         self.right = right
 
-    def set_frequency(self, left: int, right: int) -> None:
+    def set_frequency(self, left: float, right: float) -> None:
         """Set the signed step frequencies [Hz] of both motors."""
-        raise NotImplementedError
+        self.left.set_frequency(left)
+        self.right.set_frequency(right)
 
     def stop(self) -> None:
-        """Stop both motors."""
-        raise NotImplementedError
+        """Stop both motors (the right one is stopped even if the left one fails)."""
+        try:
+            self.left.stop()
+        finally:
+            self.right.stop()
 
     def close(self) -> None:
         """Stop both motors and release resources."""
-        raise NotImplementedError
+        try:
+            self.left.close()
+        finally:
+            self.right.close()
 
 
 class MotorPower:
-    """Motor power (enable) shared by both motor drivers. High = powered."""
+    """
+    Motor power (enable) shared by both motor drivers. High = powered.
+
+    While powered, the motors hold their position even when stopped.
+    """
 
     def __init__(self, enable: DigitalOutput) -> None:
-        """Wrap the enable line."""
+        """Wrap the enable line. The line should start low (off)."""
         self._enable = enable
+        self._is_on = False
+        self._closed = False
 
     def on(self) -> None:
-        """Power the motors (they hold their position)."""
-        raise NotImplementedError
+        """Power the motors."""
+        self._set(True)
 
     def off(self) -> None:
         """Cut motor power."""
-        raise NotImplementedError
+        self._set(False)
 
     @property
     def is_on(self) -> bool:
         """Return the last commanded state."""
-        raise NotImplementedError
+        return self._is_on
 
     def close(self) -> None:
-        """Cut motor power and release the line."""
-        raise NotImplementedError
+        """Cut motor power and release the line. Calling this more than once is allowed."""
+        if self._closed:
+            return
+        try:
+            self.off()
+        finally:
+            self._closed = True
+            self._enable.close()
+
+    def _set(self, value: bool) -> None:
+        if self._closed:
+            raise DeviceError('motor power is already closed')
+        self._enable.write(value)
+        self._is_on = value
