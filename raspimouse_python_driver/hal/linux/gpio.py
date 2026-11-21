@@ -1,20 +1,42 @@
 """GPIO through lgpio (GPIO character device)."""
 
+from ._lgpio import import_lgpio
+from ...exceptions import DeviceError
+
 
 class LgpioDigitalOutput:
     """GPIO output line."""
 
     def __init__(self, chip_handle: int, pin: int, initial: bool = False) -> None:
         """Claim ``pin`` as an output with the initial level."""
-        raise NotImplementedError
+        self._lgpio = import_lgpio()
+        self._chip_handle = chip_handle
+        self.pin = pin
+        try:
+            self._lgpio.gpio_claim_output(chip_handle, pin, int(bool(initial)))
+        except self._lgpio.error as e:
+            raise DeviceError(f'cannot claim GPIO{pin} as output: {e}') from e
+        self._closed = False
 
     def write(self, value: bool) -> None:
         """Drive the line high (True) or low (False)."""
-        raise NotImplementedError
+        if self._closed:
+            raise DeviceError(f'GPIO{self.pin} is already closed')
+        try:
+            self._lgpio.gpio_write(self._chip_handle, self.pin, int(bool(value)))
+        except self._lgpio.error as e:
+            raise DeviceError(f'cannot write GPIO{self.pin}: {e}') from e
 
     def close(self) -> None:
-        """Free the line."""
-        raise NotImplementedError
+        """Free the line. Calling this more than once is allowed."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._lgpio.gpio_free(self._chip_handle, self.pin)
+        except self._lgpio.error:
+            # The line is freed anyway when the chip is closed.
+            pass
 
 
 class LgpioDigitalInput:

@@ -8,6 +8,7 @@ from .devices.motor import MotorPower, Motors
 from .devices.pulse_counter import PulseCounter
 from .devices.switch import Switch
 from .hal.interfaces import Backend
+from .hal.linux import LinuxBackend
 
 
 class RaspiMouse:
@@ -35,6 +36,7 @@ class RaspiMouse:
         """
         self.config = config or RaspiMouseConfig()
         self._backend = backend
+        self._is_open = False
         self.leds: tuple[Led, ...] = ()
         self.switches: tuple[Switch, ...] = ()
         self.light_sensors: LightSensors | None = None
@@ -45,13 +47,41 @@ class RaspiMouse:
         self.right_counter: PulseCounter | None = None
 
     def open(self) -> None:  # noqa: A003 (pairs with close() like a file object)
-        """Acquire hardware resources and create all devices."""
-        # TODO: create LinuxBackend if no backend is given, then build devices.
-        raise NotImplementedError
+        """
+        Acquire hardware resources and create all devices.
+
+        If any device fails to open, everything opened so far is released.
+        Calling this while already open does nothing.
+        """
+        if self._is_open:
+            return
+        if self._backend is None:
+            self._backend = LinuxBackend(gpio_chip=self.config.gpio_chip)
+        self._is_open = True
+        try:
+            self.leds = tuple(
+                Led(self._backend.digital_output(pin, initial=False))
+                for pin in self.config.led_pins)
+            # TODO: create the other devices as they are implemented.
+        except BaseException:
+            self.close()
+            raise
 
     def close(self) -> None:
-        """Stop the motors, turn off the motor power and release all resources."""
-        raise NotImplementedError
+        """
+        Stop the motors, turn off the motor power and release all resources.
+
+        Calling this more than once is allowed.
+        """
+        # TODO: stop the motors and turn off the motor power first.
+        leds, self.leds = self.leds, ()
+        try:
+            for led in leds:
+                led.close()
+        finally:
+            if self._backend is not None:
+                self._backend.close()
+            self._is_open = False
 
     def __enter__(self) -> 'RaspiMouse':
         """Open the devices."""

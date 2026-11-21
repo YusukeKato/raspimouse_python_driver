@@ -4,6 +4,8 @@ Pure Python device driver for Raspberry Pi Mouse.
 
 It accesses the hardware through [lgpio](https://abyz.me.uk/lg/py_lgpio.html) and sysfs PWM instead of a kernel module.
 
+This is an unofficial driver developed by volunteers.
+
 Reference: [rt-net/RaspberryPiMouse](https://github.com/rt-net/RaspberryPiMouse) (the official kernel module driver)
 
 ## Requirements

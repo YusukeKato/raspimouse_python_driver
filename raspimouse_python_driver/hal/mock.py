@@ -4,17 +4,29 @@ Fake hardware for unit tests and development on a PC.
 Each fake records what was written and returns values set by the test.
 """
 
+from ..exceptions import DeviceError
+
 
 class MockDigitalOutput:
     """Fake GPIO output that records the written levels."""
 
+    def __init__(self, pin: int, initial: bool = False) -> None:
+        """Create the fake with the initial level."""
+        self.pin = pin
+        self.value = bool(initial)
+        self.history: list[bool] = [self.value]
+        self.closed = False
+
     def write(self, value: bool) -> None:
         """Record the level."""
-        raise NotImplementedError
+        if self.closed:
+            raise DeviceError(f'GPIO{self.pin} is already closed')
+        self.value = bool(value)
+        self.history.append(self.value)
 
     def close(self) -> None:
         """Mark as closed."""
-        raise NotImplementedError
+        self.closed = True
 
 
 class MockDigitalInput:
@@ -76,9 +88,19 @@ class MockPwmChannel:
 class MockBackend:
     """Backend that creates the fakes above and keeps them for inspection."""
 
+    def __init__(self) -> None:
+        """Create the backend."""
+        self.outputs: dict[int, MockDigitalOutput] = {}
+        self.closed = False
+
     def digital_output(self, pin: int, initial: bool = False) -> MockDigitalOutput:
         """Create a fake output for ``pin``."""
-        raise NotImplementedError
+        if pin in self.outputs and not self.outputs[pin].closed:
+            raise DeviceError(f'GPIO{pin} is already in use')
+        self.closed = False
+        output = MockDigitalOutput(pin, initial)
+        self.outputs[pin] = output
+        return output
 
     def digital_input(self, pin: int, pull_up: bool = False) -> MockDigitalInput:
         """Create a fake input for ``pin``."""
@@ -102,4 +124,6 @@ class MockBackend:
 
     def close(self) -> None:
         """Close all fakes."""
-        raise NotImplementedError
+        for output in self.outputs.values():
+            output.close()
+        self.closed = True

@@ -8,10 +8,12 @@ lgpio is imported lazily so that this package can be imported on machines
 where it is not installed.
 """
 
+from ._lgpio import import_lgpio
 from .gpio import LgpioDigitalInput, LgpioDigitalOutput, LgpioSoftwarePwm
 from .i2c import LgpioI2cDevice
 from .pwm import SysfsPwmChannel
 from .spi import LgpioSpiDevice
+from ...exceptions import DeviceError
 
 
 class LinuxBackend:
@@ -20,10 +22,22 @@ class LinuxBackend:
     def __init__(self, gpio_chip: int = 0) -> None:
         """Create the backend. Resources are acquired on demand."""
         self.gpio_chip = gpio_chip
+        self._chip_handle: int | None = None
+
+    def _get_chip_handle(self) -> int:
+        """Open the GPIO chip on first use and return its handle."""
+        if self._chip_handle is None:
+            lgpio = import_lgpio()
+            try:
+                self._chip_handle = lgpio.gpiochip_open(self.gpio_chip)
+            except lgpio.error as e:
+                raise DeviceError(
+                    f'cannot open /dev/gpiochip{self.gpio_chip}: {e}') from e
+        return self._chip_handle
 
     def digital_output(self, pin: int, initial: bool = False) -> LgpioDigitalOutput:
         """Claim a GPIO line as output."""
-        raise NotImplementedError
+        return LgpioDigitalOutput(self._get_chip_handle(), pin, initial)
 
     def digital_input(self, pin: int, pull_up: bool = False) -> LgpioDigitalInput:
         """Claim a GPIO line as input."""
@@ -46,8 +60,19 @@ class LinuxBackend:
         raise NotImplementedError
 
     def close(self) -> None:
-        """Release everything acquired through this backend."""
-        raise NotImplementedError
+        """
+        Close the GPIO chip, which also frees all lines claimed on it.
+
+        The backend can be used again after this; the chip is reopened on demand.
+        """
+        if self._chip_handle is None:
+            return
+        lgpio = import_lgpio()
+        handle, self._chip_handle = self._chip_handle, None
+        try:
+            lgpio.gpiochip_close(handle)
+        except lgpio.error as e:
+            raise DeviceError(f'cannot close /dev/gpiochip{self.gpio_chip}: {e}') from e
 
 
 __all__ = [

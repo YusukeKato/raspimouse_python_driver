@@ -11,3 +11,6 @@ __pycache__/
 dist/
 .pytest_cache/
 .venv/
+
+# lgpio notification pipes (created in the working directory)
+.lgd-nfy*
