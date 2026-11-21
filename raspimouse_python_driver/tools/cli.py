@@ -29,7 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help='keep printing whenever a state changes')
     switch.add_argument('--duration', type=float, default=10.0,
                         help='[s] how long to watch (default: 10.0)')
-    sub.add_parser('sensor', help='print light sensor values')
+    sensor = sub.add_parser('sensor', help='print light sensor values')
+    sensor.add_argument('--watch', action='store_true', help='keep printing values')
+    sensor.add_argument('--duration', type=float, default=10.0,
+                        help='[s] how long to watch (default: 10.0)')
+    sensor.add_argument('--interval', type=float, default=0.2,
+                        help='[s] time between readings when watching (default: 0.2)')
 
     buzzer = sub.add_parser('buzzer', help='sound the buzzer for a while')
     buzzer.add_argument('frequency', type=float, nargs='+',
@@ -97,10 +102,24 @@ def _buzzer(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sensor(args: argparse.Namespace) -> int:
+    with RaspiMouse() as mouse:
+        start = time.monotonic()
+        while True:
+            v = mouse.light_sensors.read()
+            elapsed = time.monotonic() - start
+            print(f'{elapsed:6.2f} s  RF {v.right_front:5d}  R {v.right:5d}  '
+                  f'L {v.left:5d}  LF {v.left_front:5d}', flush=True)
+            if not args.watch or elapsed + args.interval > args.duration:
+                return 0
+            time.sleep(args.interval)
+
+
 _COMMANDS = {
     'led': _led,
     'switch': _switch,
     'buzzer': _buzzer,
+    'sensor': _sensor,
 }
 
 

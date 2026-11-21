@@ -4,6 +4,8 @@ Fake hardware for unit tests and development on a PC.
 Each fake records what was written and returns values set by the test.
 """
 
+from collections.abc import Callable
+
 from ..exceptions import DeviceError
 
 
@@ -55,15 +57,46 @@ class MockDigitalInput:
 
 
 class MockSpiDevice:
-    """Fake SPI device that answers with a user supplied function."""
+    """
+    Fake SPI device that answers with a user supplied function.
+
+    ``responder`` receives the sent bytes and returns the received bytes.
+    Without one, the device answers with zeros.
+    """
+
+    def __init__(self, responder: Callable[[bytes], bytes] | None = None) -> None:
+        """Create the fake."""
+        self.responder = responder or (lambda data: bytes(len(data)))
+        self.transfers: list[bytes] = []
+        self.closed = False
 
     def transfer(self, data: bytes) -> bytes:
         """Record ``data`` and return the prepared response."""
-        raise NotImplementedError
+        if self.closed:
+            raise DeviceError('SPI device is already closed')
+        data = bytes(data)
+        self.transfers.append(data)
+        response = bytes(self.responder(data))
+        if len(response) != len(data):
+            raise ValueError('responder must return as many bytes as sent')
+        return response
 
     def close(self) -> None:
         """Mark as closed."""
-        raise NotImplementedError
+        self.closed = True
+
+
+def mcp3204_responder(read_channel: Callable[[int], int]) -> Callable[[bytes], bytes]:
+    """
+    Return a :class:`MockSpiDevice` responder that behaves like an MCP3204.
+
+    ``read_channel`` returns the conversion result (0-4095) of a channel.
+    """
+    def respond(data: bytes) -> bytes:
+        channel = ((data[0] & 0x01) << 2) | (data[1] >> 6)
+        value = read_channel(channel) & 0x0FFF
+        return bytes([0x00, value >> 8, value & 0xFF])
+    return respond
 
 
 class MockI2cDevice:
@@ -129,6 +162,9 @@ class MockBackend:
         self.outputs: dict[int, MockDigitalOutput] = {}
         self.inputs: dict[int, MockDigitalInput] = {}
         self.software_pwms: dict[int, MockPwmChannel] = {}
+        # Keyed by (bus, chip_select). New devices answer with spi_responder.
+        self.spi_devices: dict[tuple[int, int], MockSpiDevice] = {}
+        self.spi_responder: Callable[[bytes], bytes] | None = None
         self.closed = False
 
     def _claim(self, pin: int) -> None:
@@ -159,8 +195,13 @@ class MockBackend:
         return pwm
 
     def spi_device(self, bus: int, chip_select: int, max_speed_hz: int) -> MockSpiDevice:
-        """Create a fake SPI device."""
-        raise NotImplementedError
+        """Create a fake SPI device. Like the real backend, close() does not close it."""
+        key = (bus, chip_select)
+        if key in self.spi_devices and not self.spi_devices[key].closed:
+            raise DeviceError(f'/dev/spidev{bus}.{chip_select} is already in use')
+        device = MockSpiDevice(self.spi_responder)
+        self.spi_devices[key] = device
+        return device
 
     def i2c_device(self, bus: int, address: int) -> MockI2cDevice:
         """Create a fake I2C device."""

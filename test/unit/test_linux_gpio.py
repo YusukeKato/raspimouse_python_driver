@@ -51,7 +51,8 @@ def test_raspimouse_leds_through_lgpio(lgpio):
     outputs = [c[2] for c in lgpio.calls if c[0] == 'gpio_claim_output']
     inputs = [c[2] for c in lgpio.calls if c[0] == 'gpio_claim_input']
     freed = [c[2] for c in lgpio.calls if c[0] == 'gpio_free']
-    assert outputs == [25, 24, 23, 18, 19]  # LEDs and the buzzer
+    # LEDs, the buzzer and the light sensor emitters (right, left, right front, left front).
+    assert outputs == [25, 24, 23, 18, 19, 22, 4, 27, 17]
     assert inputs == [20, 26, 21]
     assert sorted(freed) == sorted(outputs + inputs)
     assert ('gpio_write', lgpio.chip_handle, 25, 1) in lgpio.calls
@@ -144,3 +145,45 @@ def test_raspimouse_buzzer_through_lgpio(lgpio):
     tx = [c[3:] for c in lgpio.calls if c[0] == 'tx_pwm']
     assert tx[0] == (880, 50.0)
     assert tx[-1] == (0, 0)  # stopped on close
+
+
+def test_spi_device(lgpio):
+    lgpio.spi_responder = lambda data: b'\x00\x0a\xbc'
+    spi = LinuxBackend().spi_device(0, 0, 1_000_000)
+    assert spi.transfer(b'\x06\x00\x00') == b'\x00\x0a\xbc'
+    spi.close()
+    spi.close()  # second close is allowed
+    spi_calls = [c for c in lgpio.calls if c[0].startswith('spi_')]
+    assert spi_calls == [
+        ('spi_open', 0, 0, 1_000_000, 0),
+        ('spi_xfer', lgpio.spi_handle, b'\x06\x00\x00'),
+        ('spi_close', lgpio.spi_handle),
+    ]
+    with pytest.raises(DeviceError):
+        spi.transfer(b'\x00')
+
+
+def test_spi_open_failure_raises_device_error(lgpio):
+    lgpio.spi_fail = True
+    with pytest.raises(DeviceError, match='/dev/spidev0.0'):
+        LinuxBackend().spi_device(0, 0, 1_000_000)
+
+
+def test_spi_open_failure_releases_gpio(lgpio):
+    lgpio.spi_fail = True
+    with pytest.raises(DeviceError):
+        RaspiMouse().open()
+    assert lgpio.calls[-1] == ('gpiochip_close', lgpio.chip_handle)
+
+
+def test_raspimouse_light_sensors_through_lgpio(lgpio):
+    # Right front sensor (ADC channel 2, emitter GPIO27) sees 1234 more when lit.
+    def respond(data):
+        channel = data[1] >> 6
+        lit = ('gpio_write', lgpio.chip_handle, 27, 1) == lgpio.last_write(27)
+        value = 1234 if channel == 2 and lit else 0
+        return bytes([0, value >> 8, value & 0xFF])
+    lgpio.spi_responder = respond
+    with RaspiMouse() as mouse:
+        assert mouse.light_sensors.read() == (1234, 0, 0, 0)
+    assert ('spi_close', lgpio.spi_handle) in lgpio.calls

@@ -9,7 +9,7 @@ def test_open_creates_leds_on_configured_pins():
     backend = MockBackend()
     with RaspiMouse(backend=backend) as mouse:
         assert len(mouse.leds) == 4
-        assert set(backend.outputs) == set(RaspiMouseConfig().led_pins)
+        assert set(RaspiMouseConfig().led_pins) <= set(backend.outputs)
         assert all(output.value is False for output in backend.outputs.values())
 
 
@@ -81,3 +81,17 @@ def test_close_continues_after_a_device_error():
     assert all(output.closed for output in backend.outputs.values())
     assert all(line.closed for line in backend.inputs.values())
     assert backend.closed
+
+
+def test_open_creates_light_sensors():
+    backend = MockBackend()
+    config = RaspiMouseConfig()
+    with RaspiMouse(backend=backend) as mouse:
+        sensors = config.light_sensors
+        for name in ('right_front', 'right', 'left', 'left_front'):
+            assert getattr(sensors, name).emitter_pin in backend.outputs
+        spi = backend.spi_devices[(sensors.spi_bus, sensors.spi_chip_select)]
+        assert mouse.light_sensors.read() == (0, 0, 0, 0)  # the mock SPI answers zeros
+        assert len(spi.transfers) == 8  # 4 channels x (ambient, lit)
+    assert mouse.light_sensors is None
+    assert spi.closed

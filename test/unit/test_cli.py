@@ -58,3 +58,11 @@ def test_buzzer_rejects_negative(lgpio, capsys):
     assert cli.main(['buzzer', '--duration', '0', '--', '-5']) == 2
     assert 'must not be negative' in capsys.readouterr().err
     assert lgpio.calls == []
+
+
+def test_sensor_prints_values_once(lgpio, capsys):
+    assert cli.main(['sensor']) == 0
+    out = capsys.readouterr().out
+    assert out.count('\n') == 1
+    assert 'RF     0  R     0  L     0  LF     0' in out
+    assert ('spi_close', lgpio.spi_handle) in lgpio.calls

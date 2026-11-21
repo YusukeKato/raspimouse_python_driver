@@ -48,8 +48,8 @@ class LinuxBackend:
         return LgpioSoftwarePwm(self._get_chip_handle(), pin)
 
     def spi_device(self, bus: int, chip_select: int, max_speed_hz: int) -> LgpioSpiDevice:
-        """Open an SPI device."""
-        raise NotImplementedError
+        """Open an SPI device. The caller closes it."""
+        return LgpioSpiDevice(bus, chip_select, max_speed_hz)
 
     def i2c_device(self, bus: int, address: int) -> LgpioI2cDevice:
         """Open an I2C device."""

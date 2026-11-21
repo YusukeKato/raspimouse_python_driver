@@ -3,7 +3,8 @@
 from .config import RaspiMouseConfig
 from .devices.buzzer import Buzzer
 from .devices.led import Led
-from .devices.light_sensor import LightSensors
+from .devices.light_sensor import LightSensors, READ_ORDER
+from .devices.mcp3204 import Mcp3204
 from .devices.motor import MotorPower, Motors
 from .devices.pulse_counter import PulseCounter
 from .devices.switch import Switch
@@ -67,6 +68,7 @@ class RaspiMouse:
                 for pin in self.config.switch_pins)
             self.buzzer = Buzzer(
                 self._backend.software_pwm(self.config.buzzer.pin), self.config.buzzer)
+            self.light_sensors = self._open_light_sensors()
             # TODO: create the other devices as they are implemented.
         except BaseException:
             self.close()
@@ -79,8 +81,11 @@ class RaspiMouse:
         Calling this more than once is allowed.
         """
         # TODO: stop the motors and turn off the motor power first.
-        devices = (*([self.buzzer] if self.buzzer else []), *self.leds, *self.switches)
+        devices = (*([self.buzzer] if self.buzzer else []),
+                   *([self.light_sensors] if self.light_sensors else []),
+                   *self.leds, *self.switches)
         self.buzzer = None
+        self.light_sensors = None
         self.leds = ()
         self.switches = ()
         # Close every device even if one fails, then report the first error.
@@ -97,6 +102,16 @@ class RaspiMouse:
             self._is_open = False
         if error is not None:
             raise error
+
+    def _open_light_sensors(self) -> LightSensors:
+        config = self.config.light_sensors
+        # Emitters first: GPIO lines are freed with the backend if SPI fails to open.
+        emitters = {
+            name: self._backend.digital_output(getattr(config, name).emitter_pin, initial=False)
+            for name in READ_ORDER}
+        spi = self._backend.spi_device(
+            config.spi_bus, config.spi_chip_select, config.spi_max_speed_hz)
+        return LightSensors(Mcp3204(spi), emitters, config)
 
     def __enter__(self) -> 'RaspiMouse':
         """Open the devices."""

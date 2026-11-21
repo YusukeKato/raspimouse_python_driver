@@ -6,6 +6,7 @@ import types
 import pytest
 
 CHIP_HANDLE = 7
+SPI_HANDLE = 3
 
 
 class FakeLgpioError(Exception):
@@ -17,6 +18,7 @@ class FakeLgpio(types.ModuleType):
 
     error = FakeLgpioError
     chip_handle = CHIP_HANDLE
+    spi_handle = SPI_HANDLE
     SET_PULL_UP = 32
 
     def __init__(self):
@@ -27,6 +29,9 @@ class FakeLgpio(types.ModuleType):
         self.levels = {}
         # GPIOs with running software PWM.
         self.pwm_active = set()
+        # Answers SPI transfers; default: zeros.
+        self.spi_responder = lambda data: bytes(len(data))
+        self.spi_fail = False
 
     def gpiochip_open(self, gpiochip):
         self.calls.append(('gpiochip_open', gpiochip))
@@ -63,9 +68,27 @@ class FakeLgpio(types.ModuleType):
             self.pwm_active.add(gpio)
         return 0
 
+    def spi_open(self, spi_device, spi_channel, baud, spi_flags=0):
+        if self.spi_fail:
+            raise FakeLgpioError("'can not open SPI device'")
+        self.calls.append(('spi_open', spi_device, spi_channel, baud, spi_flags))
+        return SPI_HANDLE
+
+    def spi_xfer(self, handle, data):
+        self.calls.append(('spi_xfer', handle, bytes(data)))
+        return [len(data), bytearray(self.spi_responder(bytes(data)))]
+
+    def spi_close(self, handle):
+        self.calls.append(('spi_close', handle))
+        return 0
+
     def gpio_write(self, handle, gpio, level):
         self.calls.append(('gpio_write', handle, gpio, level))
         return 0
+
+    def last_write(self, gpio):
+        writes = [c for c in self.calls if c[0] == 'gpio_write' and c[2] == gpio]
+        return writes[-1] if writes else None
 
     def gpio_free(self, handle, gpio):
         self.calls.append(('gpio_free', handle, gpio))
