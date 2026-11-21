@@ -100,19 +100,39 @@ def mcp3204_responder(read_channel: Callable[[int], int]) -> Callable[[bytes], b
 
 
 class MockI2cDevice:
-    """Fake I2C device backed by a register dictionary."""
+    """
+    Fake I2C device backed by a register dictionary.
+
+    Unknown registers read 0. Set ``present`` to False to simulate a device
+    that does not answer.
+    """
+
+    def __init__(self, address: int) -> None:
+        """Create the fake."""
+        self.address = address
+        self.registers: dict[int, int] = {}
+        self.present = True
+        self.closed = False
 
     def read_byte_data(self, register: int) -> int:
         """Return the register value."""
-        raise NotImplementedError
+        self._check()
+        return self.registers.get(register, 0)
 
     def write_byte_data(self, register: int, value: int) -> None:
         """Store the register value."""
-        raise NotImplementedError
+        self._check()
+        self.registers[register] = value & 0xFF
 
     def close(self) -> None:
         """Mark as closed."""
-        raise NotImplementedError
+        self.closed = True
+
+    def _check(self) -> None:
+        if self.closed:
+            raise DeviceError(f'I2C device 0x{self.address:02x} is already closed')
+        if not self.present:
+            raise DeviceError(f'I2C device 0x{self.address:02x} does not answer')
 
 
 class MockPwmChannel:
@@ -165,6 +185,8 @@ class MockBackend:
         # Keyed by (bus, chip_select). New devices answer with spi_responder.
         self.spi_devices: dict[tuple[int, int], MockSpiDevice] = {}
         self.spi_responder: Callable[[bytes], bytes] | None = None
+        # I2C devices keyed by (bus, address).
+        self.i2c_devices: dict[tuple[int, int], MockI2cDevice] = {}
         # Hardware PWM keyed by (chip, channel).
         self.hardware_pwms: dict[tuple[int, int], MockPwmChannel] = {}
         self.closed = False
@@ -206,8 +228,20 @@ class MockBackend:
         return device
 
     def i2c_device(self, bus: int, address: int) -> MockI2cDevice:
-        """Create a fake I2C device."""
-        raise NotImplementedError
+        """
+        Return the fake I2C device at ``address``, creating it on first use.
+
+        Tests can prepare it in ``i2c_devices`` before opening. Like the real
+        backend, close() does not close it.
+        """
+        key = (bus, address)
+        device = self.i2c_devices.get(key)
+        if device is None or device.closed:
+            present = device.present if device is not None else True
+            device = MockI2cDevice(address)
+            device.present = present
+            self.i2c_devices[key] = device
+        return device
 
     def pwm_channel(self, chip: int, channel: int) -> MockPwmChannel:
         """Create a fake hardware PWM channel. Like the real backend, close() does not close it."""

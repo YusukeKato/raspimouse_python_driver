@@ -95,3 +95,15 @@ def test_device_error_suggests_check(lgpio, capsys):
     lgpio.busy_pins.add(25)
     cli.main(['led', '--duration', '0'])
     assert 'raspimouse-cli check' in capsys.readouterr().err
+
+
+def test_counter_prints_raw_values(lgpio, capsys):
+    lgpio.set_count(0x10, 1234)
+    lgpio.set_count(0x11, 65535)
+    assert cli.main(['counter']) == 0
+    assert 'left  1234  right 65535' in capsys.readouterr().out
+
+
+def test_motor_prints_pulse_counts(lgpio, capsys):
+    assert cli.main(['motor', '400', '400', '--duration', '0']) == 0
+    assert 'pulses: left +0, right +0' in capsys.readouterr().out

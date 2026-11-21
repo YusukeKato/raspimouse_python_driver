@@ -188,3 +188,32 @@ def test_raspimouse_light_sensors_through_lgpio(lgpio):
     with RaspiMouse() as mouse:
         assert mouse.light_sensors.read() == (1234, 0, 0, 0)
     assert ('spi_close', lgpio.spi_handle) in lgpio.calls
+
+
+def test_i2c_device(lgpio):
+    i2c = LinuxBackend().i2c_device(1, 0x10)
+    i2c.write_byte_data(0x10, 0x12)
+    assert i2c.read_byte_data(0x10) == 0x12
+    i2c.close()
+    i2c.close()  # second close is allowed
+    assert [c for c in lgpio.calls if c[0].startswith('i2c_')] == [
+        ('i2c_open', 1, 0x10), ('i2c_close', 0x10)]
+    with pytest.raises(DeviceError):
+        i2c.read_byte_data(0x10)
+
+
+def test_i2c_read_failure_raises_device_error(lgpio):
+    lgpio.i2c_missing.add(0x11)
+    i2c = LinuxBackend().i2c_device(1, 0x11)
+    with pytest.raises(DeviceError, match='0x11'):
+        i2c.read_byte_data(0x10)
+
+
+def test_raspimouse_pulse_counters_through_lgpio(lgpio):
+    lgpio.set_count(0x10, 1000)
+    with RaspiMouse() as mouse:
+        lgpio.set_count(0x10, 1400)
+        assert mouse.left_counter.read_raw() == 1400
+        assert mouse.left_counter.read_signed() == 400
+    closed = [c[1] for c in lgpio.calls if c[0] == 'i2c_close']
+    assert sorted(closed) == [0x10, 0x11]

@@ -99,3 +99,24 @@ def test_motor_power():
     power.close()  # second close is allowed
     with pytest.raises(DeviceError):
         power.on()
+
+
+def test_direction_listener_runs_before_direction_changes():
+    motor, _, direction = make_motor(CONFIG.right)
+    seen = []
+    motor.add_direction_change_listener(lambda: seen.append((motor.is_forward, direction.value)))
+    motor.set_frequency(400)    # already forward: no call
+    motor.set_frequency(-400)   # reversing: called with the old direction still set
+    motor.set_frequency(-200)   # same direction: no call
+    assert seen == [(True, CONFIG.right.forward_level)]
+
+
+def test_failing_listener_does_not_stop_the_motor():
+    motor, pwm, _ = make_motor()
+
+    def broken():
+        raise DeviceError('I2C failed')
+    motor.add_direction_change_listener(broken)
+    motor.set_frequency(-400)
+    assert pwm.frequency_hz == 400
+    assert not motor.is_forward

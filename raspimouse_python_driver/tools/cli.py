@@ -50,7 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     motor.add_argument('right', type=float, help='signed step frequency [Hz]')
     motor.add_argument('--duration', type=float, default=1.0, help='[s] (default: 1.0)')
 
-    sub.add_parser('counter', help='print pulse counter values')
+    counter = sub.add_parser('counter', help='print raw pulse counter values (V3 only)')
+    counter.add_argument('--watch', action='store_true', help='keep printing values')
+    counter.add_argument('--duration', type=float, default=10.0,
+                         help='[s] how long to watch (default: 10.0)')
+    counter.add_argument('--interval', type=float, default=0.5,
+                         help='[s] time between readings when watching (default: 0.5)')
     return parser
 
 
@@ -127,7 +132,25 @@ def _motor(args: argparse.Namespace) -> int:
         time.sleep(args.duration)
         mouse.motors.stop()
         mouse.motor_power.off()
+        if mouse.left_counter and mouse.right_counter:
+            print(f'pulses: left {mouse.left_counter.read_signed():+d}, '
+                  f'right {mouse.right_counter.read_signed():+d}', flush=True)
     return 0
+
+
+def _counter(args: argparse.Namespace) -> int:
+    with RaspiMouse() as mouse:
+        if not (mouse.left_counter and mouse.right_counter):
+            print('error: pulse counters are disabled in the configuration', file=sys.stderr)
+            return 1
+        start = time.monotonic()
+        while True:
+            elapsed = time.monotonic() - start
+            print(f'{elapsed:6.2f} s  left {mouse.left_counter.read_raw():5d}  '
+                  f'right {mouse.right_counter.read_raw():5d}', flush=True)
+            if not args.watch or elapsed + args.interval > args.duration:
+                return 0
+            time.sleep(args.interval)
 
 
 def _check(args: argparse.Namespace) -> int:
@@ -143,6 +166,7 @@ _COMMANDS = {
     'buzzer': _buzzer,
     'sensor': _sensor,
     'motor': _motor,
+    'counter': _counter,
 }
 
 

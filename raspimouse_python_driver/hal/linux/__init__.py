@@ -52,8 +52,8 @@ class LinuxBackend:
         return LgpioSpiDevice(bus, chip_select, max_speed_hz)
 
     def i2c_device(self, bus: int, address: int) -> LgpioI2cDevice:
-        """Open an I2C device."""
-        raise NotImplementedError
+        """Open an I2C device. The caller closes it."""
+        return LgpioI2cDevice(bus, address)
 
     def pwm_channel(self, chip: int, channel: int) -> SysfsPwmChannel:
         """Open a hardware PWM channel. The caller closes it."""

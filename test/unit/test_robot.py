@@ -128,3 +128,41 @@ def test_motor_open_failure_closes_left_motor():
         RaspiMouse(backend=backend).open()
     assert backend.hardware_pwms[(config.pwm_chip, config.left.pwm_channel)].closed
     assert backend.closed
+
+
+def test_pulse_counters_follow_motor_direction():
+    backend = MockBackend()
+    config = RaspiMouseConfig().pulse_counters
+    left_chip = backend.i2c_device(config.i2c_bus, config.left_address)
+
+    def set_left(raw):
+        left_chip.registers[config.msb_register] = raw >> 8
+        left_chip.registers[config.lsb_register] = raw & 0xFF
+
+    with RaspiMouse(backend=backend) as mouse:
+        mouse.motors.set_frequency(400, 400)
+        set_left(400)                         # 400 pulses forward
+        mouse.motors.set_frequency(-400, -400)  # the counter is updated before reversing
+        set_left(700)                         # 300 pulses backward
+        assert mouse.left_counter.read_signed() == 100
+        assert mouse.right_counter.read_signed() == 0
+    assert mouse.left_counter is None
+    assert left_chip.closed
+
+
+def test_pulse_counters_can_be_disabled():
+    backend = MockBackend()
+    with RaspiMouse(RaspiMouseConfig(has_pulse_counters=False), backend) as mouse:
+        assert mouse.left_counter is None and mouse.right_counter is None
+    assert backend.i2c_devices == {}
+
+
+def test_missing_pulse_counter_explains_and_releases():
+    backend = MockBackend()
+    config = RaspiMouseConfig().pulse_counters
+    backend.i2c_device(config.i2c_bus, config.right_address).present = False
+    with pytest.raises(DeviceError, match='has_pulse_counters=False'):
+        RaspiMouse(backend=backend).open()
+    assert backend.i2c_devices[(config.i2c_bus, config.left_address)].closed
+    assert backend.i2c_devices[(config.i2c_bus, config.right_address)].closed
+    assert backend.closed

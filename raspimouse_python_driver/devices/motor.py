@@ -1,10 +1,14 @@
 """Stepper motors and motor power."""
 
+from collections.abc import Callable
+import logging
 import threading
 
 from ..config import MotorChannelConfig, MotorConfig
 from ..exceptions import DeviceError
 from ..hal.interfaces import DigitalOutput, PwmChannel
+
+_logger = logging.getLogger(__name__)
 
 
 class StepperMotor:
@@ -27,7 +31,18 @@ class StepperMotor:
         self._is_forward = True
         self._lock = threading.Lock()
         self._closed = False
+        self._direction_listeners: list[Callable[[], None]] = []
         self._direction.write(channel.forward_level)
+
+    def add_direction_change_listener(self, callback: Callable[[], None]) -> None:
+        """
+        Call ``callback`` right before the rotation direction changes.
+
+        Used by the pulse counter to count earlier pulses with the old
+        direction. Errors in ``callback`` are logged and do not stop the motor
+        command.
+        """
+        self._direction_listeners.append(callback)
 
     def set_frequency(self, frequency_hz: float) -> None:
         """Set the signed step frequency [Hz]."""
@@ -40,6 +55,11 @@ class StepperMotor:
             magnitude = min(magnitude, self._config.max_frequency_hz)
             forward = frequency_hz > 0
             if forward != self._is_forward:
+                for callback in self._direction_listeners:
+                    try:
+                        callback()
+                    except Exception:
+                        _logger.warning('direction change listener failed', exc_info=True)
                 # forward_level is the level for forward; backward is the opposite.
                 self._direction.write(self._channel.forward_level == forward)
                 self._is_forward = forward

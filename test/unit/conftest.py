@@ -7,6 +7,7 @@ import pytest
 
 CHIP_HANDLE = 7
 SPI_HANDLE = 3
+I2C_HANDLE_BASE = 100
 
 
 class FakeLgpioError(Exception):
@@ -32,6 +33,9 @@ class FakeLgpio(types.ModuleType):
         # Answers SPI transfers; default: zeros.
         self.spi_responder = lambda data: bytes(len(data))
         self.spi_fail = False
+        # I2C registers by device address; addresses in i2c_missing do not answer.
+        self.i2c_registers = {0x10: {}, 0x11: {}}
+        self.i2c_missing = set()
 
     def gpiochip_open(self, gpiochip):
         self.calls.append(('gpiochip_open', gpiochip))
@@ -81,6 +85,29 @@ class FakeLgpio(types.ModuleType):
     def spi_close(self, handle):
         self.calls.append(('spi_close', handle))
         return 0
+
+    def i2c_open(self, i2c_bus, i2c_address, i2c_flags=0):
+        self.calls.append(('i2c_open', i2c_bus, i2c_address))
+        return I2C_HANDLE_BASE + i2c_address
+
+    def i2c_read_byte_data(self, handle, reg):
+        address = handle - I2C_HANDLE_BASE
+        if address in self.i2c_missing:
+            raise FakeLgpioError("'I2C read failed'")
+        return self.i2c_registers.setdefault(address, {}).get(reg, 0)
+
+    def i2c_write_byte_data(self, handle, reg, byte_val):
+        address = handle - I2C_HANDLE_BASE
+        self.i2c_registers.setdefault(address, {})[reg] = byte_val
+        return 0
+
+    def i2c_close(self, handle):
+        self.calls.append(('i2c_close', handle - I2C_HANDLE_BASE))
+        return 0
+
+    def set_count(self, address, value):
+        """Set the raw 16 bit count of the counter at ``address``."""
+        self.i2c_registers[address] = {0x10: value >> 8, 0x11: value & 0xFF}
 
     def gpio_write(self, handle, gpio, level):
         self.calls.append(('gpio_write', handle, gpio, level))

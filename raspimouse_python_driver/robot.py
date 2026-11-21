@@ -8,6 +8,7 @@ from .devices.mcp3204 import Mcp3204
 from .devices.motor import MotorPower, Motors, StepperMotor
 from .devices.pulse_counter import PulseCounter
 from .devices.switch import Switch
+from .exceptions import DeviceError
 from .hal.interfaces import Backend
 from .hal.linux import LinuxBackend
 
@@ -73,7 +74,11 @@ class RaspiMouse:
             self.buzzer = Buzzer(
                 self._backend.software_pwm(self.config.buzzer.pin), self.config.buzzer)
             self.light_sensors = self._open_light_sensors()
-            # TODO: create the other devices as they are implemented.
+            if self.config.has_pulse_counters:
+                self.left_counter = self._open_pulse_counter(
+                    self.config.pulse_counters.left_address, self.motors.left)
+                self.right_counter = self._open_pulse_counter(
+                    self.config.pulse_counters.right_address, self.motors.right)
         except BaseException:
             self.close()
             raise
@@ -89,7 +94,11 @@ class RaspiMouse:
                    *([self.motor_power] if self.motor_power else []),
                    *([self.buzzer] if self.buzzer else []),
                    *([self.light_sensors] if self.light_sensors else []),
+                   *([self.left_counter] if self.left_counter else []),
+                   *([self.right_counter] if self.right_counter else []),
                    *self.leds, *self.switches)
+        self.left_counter = None
+        self.right_counter = None
         self.motors = None
         self.motor_power = None
         self.buzzer = None
@@ -126,6 +135,21 @@ class RaspiMouse:
                 motor.close()
             raise
         return Motors(*motors)
+
+    def _open_pulse_counter(self, address: int, motor: StepperMotor) -> PulseCounter:
+        config = self.config.pulse_counters
+        i2c = self._backend.i2c_device(config.i2c_bus, address)
+        try:
+            counter = PulseCounter(i2c, config, lambda: motor.is_forward)
+        except DeviceError as e:
+            # The I2C device is not freed with the backend, so close it here.
+            i2c.close()
+            raise DeviceError(
+                f'pulse counter at 0x{address:02x} does not answer ({e}). '
+                'It exists on Raspberry Pi Mouse V3 only; for older models set '
+                'RaspiMouseConfig(has_pulse_counters=False).') from e
+        motor.add_direction_change_listener(counter.update)
+        return counter
 
     def _open_light_sensors(self) -> LightSensors:
         config = self.config.light_sensors
