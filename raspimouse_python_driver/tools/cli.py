@@ -50,6 +50,14 @@ def build_parser() -> argparse.ArgumentParser:
     motor.add_argument('right', type=float, help='signed step frequency [Hz]')
     motor.add_argument('--duration', type=float, default=1.0, help='[s] (default: 1.0)')
 
+    battery = sub.add_parser(
+        'battery', help='print the battery (or AC adapter) voltage (V3 only)')
+    battery.add_argument('--watch', action='store_true', help='keep printing values')
+    battery.add_argument('--duration', type=float, default=10.0,
+                         help='[s] how long to watch (default: 10.0)')
+    battery.add_argument('--interval', type=float, default=1.0,
+                         help='[s] time between readings when watching (default: 1.0)')
+
     counter = sub.add_parser('counter', help='print raw pulse counter values (V3 only)')
     counter.add_argument('--watch', action='store_true', help='keep printing values')
     counter.add_argument('--duration', type=float, default=10.0,
@@ -138,6 +146,22 @@ def _motor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _battery(args: argparse.Namespace) -> int:
+    with RaspiMouse() as mouse:
+        if mouse.battery is None:
+            print('error: the battery monitor is disabled in the configuration', file=sys.stderr)
+            return 1
+        start = time.monotonic()
+        while True:
+            elapsed = time.monotonic() - start
+            raw = mouse.battery.read_raw()
+            voltage = mouse.battery.read_voltage()
+            print(f'{elapsed:6.2f} s  {voltage:5.2f} V  (ADC {raw})', flush=True)
+            if not args.watch or elapsed + args.interval > args.duration:
+                return 0
+            time.sleep(args.interval)
+
+
 def _counter(args: argparse.Namespace) -> int:
     with RaspiMouse() as mouse:
         if not (mouse.left_counter and mouse.right_counter):
@@ -167,6 +191,7 @@ _COMMANDS = {
     'sensor': _sensor,
     'motor': _motor,
     'counter': _counter,
+    'battery': _battery,
 }
 
 

@@ -178,6 +178,10 @@ python3 -m raspimouse_python_driver.tools.cli motor 400 400 --duration 1
 python3 -m raspimouse_python_driver.tools.cli counter
 ```
 
+```bash
+python3 -m raspimouse_python_driver.tools.cli battery
+```
+
 ## License
 
 [MIT](LICENSE)

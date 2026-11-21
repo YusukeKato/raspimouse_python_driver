@@ -85,6 +85,23 @@ class PulseCounterConfig:
 
 
 @dataclass(frozen=True)
+class BatteryConfig:
+    """
+    Battery voltage monitor of Raspberry Pi Mouse V3.
+
+    The input voltage after the main switch (the battery, or the AC adapter
+    when powered from it) is divided by R1 (51 kOhm) and R2 (10 kOhm) and read
+    by the A/D converter (MCP3208) on the light sensor SPI bus.
+    """
+
+    adc_channel: int = 4
+    # (R1 + R2) / R2
+    divider_ratio: float = (51.0 + 10.0) / 10.0
+    # Reference voltage of the A/D converter (the 3.3 V rail).
+    reference_voltage: float = 3.3
+
+
+@dataclass(frozen=True)
 class RaspiMouseConfig:
     """Complete hardware configuration."""
 
@@ -99,3 +116,6 @@ class RaspiMouseConfig:
     pulse_counters: PulseCounterConfig = field(default_factory=PulseCounterConfig)
     # Set False on models without pulse counters (before V3).
     has_pulse_counters: bool = True
+    battery: BatteryConfig = field(default_factory=BatteryConfig)
+    # Set False on models without the battery voltage monitor (before V3).
+    has_battery_monitor: bool = True

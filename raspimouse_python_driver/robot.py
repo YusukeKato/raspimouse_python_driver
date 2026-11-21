@@ -1,10 +1,11 @@
 """High level interface that bundles all devices of Raspberry Pi Mouse."""
 
 from .config import RaspiMouseConfig
+from .devices.battery import Battery
 from .devices.buzzer import Buzzer
 from .devices.led import Led
 from .devices.light_sensor import LightSensors, READ_ORDER
-from .devices.mcp3204 import Mcp3204
+from .devices.mcp3204 import Mcp3204, Mcp3208
 from .devices.motor import MotorPower, Motors, StepperMotor
 from .devices.pulse_counter import PulseCounter
 from .devices.switch import Switch
@@ -47,6 +48,9 @@ class RaspiMouse:
         self.motor_power: MotorPower | None = None
         self.left_counter: PulseCounter | None = None
         self.right_counter: PulseCounter | None = None
+        self.battery: Battery | None = None
+        # A/D converter shared by the light sensors and the battery monitor.
+        self._adc: Mcp3204 | None = None
 
     def open(self) -> None:  # noqa: A003 (pairs with close() like a file object)
         """
@@ -74,6 +78,8 @@ class RaspiMouse:
             self.buzzer = Buzzer(
                 self._backend.software_pwm(self.config.buzzer.pin), self.config.buzzer)
             self.light_sensors = self._open_light_sensors()
+            if self.config.has_battery_monitor:
+                self.battery = Battery(self._adc, self.config.battery)
             if self.config.has_pulse_counters:
                 self.left_counter = self._open_pulse_counter(
                     self.config.pulse_counters.left_address, self.motors.left)
@@ -96,7 +102,10 @@ class RaspiMouse:
                    *([self.light_sensors] if self.light_sensors else []),
                    *([self.left_counter] if self.left_counter else []),
                    *([self.right_counter] if self.right_counter else []),
+                   *([self._adc] if self._adc else []),
                    *self.leds, *self.switches)
+        self.battery = None
+        self._adc = None
         self.left_counter = None
         self.right_counter = None
         self.motors = None
@@ -159,7 +168,9 @@ class RaspiMouse:
             for name in READ_ORDER}
         spi = self._backend.spi_device(
             config.spi_bus, config.spi_chip_select, config.spi_max_speed_hz)
-        return LightSensors(Mcp3204(spi), emitters, config)
+        # V3 has an MCP3208 whose channel 4 monitors the battery.
+        self._adc = Mcp3208(spi) if self.config.has_battery_monitor else Mcp3204(spi)
+        return LightSensors(self._adc, emitters, config, close_adc=False)
 
     def __enter__(self) -> 'RaspiMouse':
         """Open the devices."""

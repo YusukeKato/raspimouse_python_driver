@@ -107,3 +107,9 @@ def test_counter_prints_raw_values(lgpio, capsys):
 def test_motor_prints_pulse_counts(lgpio, capsys):
     assert cli.main(['motor', '400', '400', '--duration', '0']) == 0
     assert 'pulses: left +0, right +0' in capsys.readouterr().out
+
+
+def test_battery_prints_voltage(lgpio, capsys):
+    lgpio.spi_responder = lambda data: bytes([0, 2258 >> 8, 2258 & 0xFF])
+    assert cli.main(['battery']) == 0
+    assert '11.10 V  (ADC 2258)' in capsys.readouterr().out

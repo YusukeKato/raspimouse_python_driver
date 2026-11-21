@@ -2,7 +2,7 @@ import pytest
 
 from raspimouse_python_driver import RaspiMouse, RaspiMouseConfig
 from raspimouse_python_driver.exceptions import DeviceError
-from raspimouse_python_driver.hal.mock import MockBackend, MockPwmChannel
+from raspimouse_python_driver.hal.mock import mcp3204_responder, MockBackend, MockPwmChannel
 
 LED_PINS = RaspiMouseConfig().led_pins
 
@@ -166,3 +166,23 @@ def test_missing_pulse_counter_explains_and_releases():
     assert backend.i2c_devices[(config.i2c_bus, config.left_address)].closed
     assert backend.i2c_devices[(config.i2c_bus, config.right_address)].closed
     assert backend.closed
+
+
+def test_battery_shares_the_adc_with_light_sensors():
+    backend = MockBackend()
+    backend.spi_responder = mcp3204_responder(lambda ch: 2258 if ch == 4 else 0)
+    config = RaspiMouseConfig().light_sensors
+    with RaspiMouse(backend=backend) as mouse:
+        assert mouse.battery.read_voltage() == pytest.approx(11.1, abs=0.01)
+        assert mouse.light_sensors.read() == (0, 0, 0, 0)
+        spi = backend.spi_devices[(config.spi_bus, config.spi_chip_select)]
+        assert len(backend.spi_devices) == 1
+    assert mouse.battery is None
+    assert spi.closed
+
+
+def test_battery_monitor_can_be_disabled():
+    backend = MockBackend()
+    with RaspiMouse(RaspiMouseConfig(has_battery_monitor=False), backend) as mouse:
+        assert mouse.battery is None
+        assert mouse.light_sensors.read() == (0, 0, 0, 0)

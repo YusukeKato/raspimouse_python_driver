@@ -45,14 +45,16 @@ class LightSensors:
     """
 
     def __init__(self, adc: Mcp3204, emitters: dict[str, DigitalOutput],
-                 config: LightSensorConfig) -> None:
+                 config: LightSensorConfig, close_adc: bool = True) -> None:
         """
         Create the sensors.
 
-        :param adc: the shared ADC.
+        :param adc: the ADC.
         :param emitters: emitter LED outputs keyed by
             ``right_front``, ``right``, ``left`` and ``left_front``.
         :param config: ADC channels and timing.
+        :param close_adc: close ``adc`` in :meth:`close`. False when the ADC is
+            shared with other devices (the battery monitor).
         """
         missing = set(READ_ORDER) - set(emitters)
         if missing:
@@ -60,6 +62,7 @@ class LightSensors:
         self._adc = adc
         self._emitters = emitters
         self._config = config
+        self._close_adc = close_adc
         self._lock = threading.Lock()
         self._closed = False
 
@@ -101,6 +104,7 @@ class LightSensors:
                 except Exception as e:
                     error = error or e
                 emitter.close()
-            self._adc.close()
+            if self._close_adc:
+                self._adc.close()
             if error is not None:
                 raise error
