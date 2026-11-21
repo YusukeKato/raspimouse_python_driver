@@ -51,7 +51,7 @@ def test_raspimouse_leds_through_lgpio(lgpio):
     outputs = [c[2] for c in lgpio.calls if c[0] == 'gpio_claim_output']
     inputs = [c[2] for c in lgpio.calls if c[0] == 'gpio_claim_input']
     freed = [c[2] for c in lgpio.calls if c[0] == 'gpio_free']
-    assert outputs == [25, 24, 23, 18]
+    assert outputs == [25, 24, 23, 18, 19]  # LEDs and the buzzer
     assert inputs == [20, 26, 21]
     assert sorted(freed) == sorted(outputs + inputs)
     assert ('gpio_write', lgpio.chip_handle, 25, 1) in lgpio.calls
@@ -90,3 +90,57 @@ def test_raspimouse_switches_through_lgpio(lgpio):
     lgpio.levels[26] = 0  # switch 1 pressed
     with RaspiMouse() as mouse:
         assert [sw.is_pressed() for sw in mouse.switches] == [False, True, False]
+
+
+def test_software_pwm(lgpio):
+    backend = LinuxBackend()
+    pwm = backend.software_pwm(19)
+    handle = lgpio.chip_handle
+    assert ('gpio_claim_output', handle, 19, 0) in lgpio.calls
+    pwm.set_frequency(440, 0.5)
+    pwm.stop()
+    pwm.close()
+    pwm.close()  # second close is allowed
+    pwm_calls = [c for c in lgpio.calls if c[0] in ('tx_pwm', 'gpio_free')]
+    assert pwm_calls == [
+        ('tx_pwm', handle, 19, 440, 50.0),
+        ('tx_pwm', handle, 19, 0, 0),
+        ('gpio_free', handle, 19),  # already stopped, so no second "off"
+    ]
+
+
+def test_software_pwm_close_while_running_stops_first(lgpio):
+    pwm = LinuxBackend().software_pwm(19)
+    pwm.set_frequency(440)
+    pwm.close()
+    pwm_calls = [c[0:1] + c[3:] for c in lgpio.calls if c[0] in ('tx_pwm', 'gpio_free')]
+    assert pwm_calls == [('tx_pwm', 440, 50.0), ('tx_pwm', 0, 0), ('gpio_free',)]
+
+
+def test_software_pwm_stop_without_start_is_noop(lgpio):
+    pwm = LinuxBackend().software_pwm(19)
+    pwm.stop()
+    pwm.stop()
+    pwm.close()
+    assert not [c for c in lgpio.calls if c[0] == 'tx_pwm']
+
+
+def test_raspimouse_close_without_using_buzzer(lgpio):
+    with RaspiMouse():
+        pass
+    assert lgpio.calls[-1] == ('gpiochip_close', lgpio.chip_handle)
+
+
+@pytest.mark.parametrize('frequency, duty', [(0, 0.5), (10_001, 0.5), (440, 1.5), (440, -0.1)])
+def test_software_pwm_rejects_out_of_range(lgpio, frequency, duty):
+    pwm = LinuxBackend().software_pwm(19)
+    with pytest.raises(ValueError):
+        pwm.set_frequency(frequency, duty)
+
+
+def test_raspimouse_buzzer_through_lgpio(lgpio):
+    with RaspiMouse() as mouse:
+        mouse.buzzer.play(880)
+    tx = [c[3:] for c in lgpio.calls if c[0] == 'tx_pwm']
+    assert tx[0] == (880, 50.0)
+    assert tx[-1] == (0, 0)  # stopped on close

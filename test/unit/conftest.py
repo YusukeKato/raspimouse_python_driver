@@ -25,6 +25,8 @@ class FakeLgpio(types.ModuleType):
         self.busy_pins = set()
         # Levels returned by gpio_read(); unknown pins read high (pulled up).
         self.levels = {}
+        # GPIOs with running software PWM.
+        self.pwm_active = set()
 
     def gpiochip_open(self, gpiochip):
         self.calls.append(('gpiochip_open', gpiochip))
@@ -48,6 +50,18 @@ class FakeLgpio(types.ModuleType):
 
     def gpio_read(self, handle, gpio):
         return self.levels.get(gpio, 1)
+
+    def tx_pwm(self, handle, gpio, pwm_frequency, pwm_duty_cycle,
+               pulse_offset=0, pulse_cycles=0):
+        # Like lgpio 0.2: "off" for a GPIO without active PWM is an error.
+        if pwm_frequency == 0 and gpio not in self.pwm_active:
+            raise FakeLgpioError("'bad PWM micros'")
+        self.calls.append(('tx_pwm', handle, gpio, pwm_frequency, pwm_duty_cycle))
+        if pwm_frequency == 0:
+            self.pwm_active.discard(gpio)
+        else:
+            self.pwm_active.add(gpio)
+        return 0
 
     def gpio_write(self, handle, gpio, level):
         self.calls.append(('gpio_write', handle, gpio, level))

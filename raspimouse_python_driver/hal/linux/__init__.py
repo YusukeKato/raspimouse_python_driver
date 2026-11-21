@@ -45,7 +45,7 @@ class LinuxBackend:
 
     def software_pwm(self, pin: int) -> LgpioSoftwarePwm:
         """Claim a GPIO line for software PWM."""
-        raise NotImplementedError
+        return LgpioSoftwarePwm(self._get_chip_handle(), pin)
 
     def spi_device(self, bus: int, chip_select: int, max_speed_hz: int) -> LgpioSpiDevice:
         """Open an SPI device."""

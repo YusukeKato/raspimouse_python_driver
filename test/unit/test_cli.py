@@ -41,3 +41,20 @@ def test_switch_prints_states_once(lgpio, capsys):
 def test_switch_watch_ends_after_duration(lgpio, capsys):
     assert cli.main(['switch', '--watch', '--duration', '0']) == 0
     assert '0: released, 1: released, 2: released' in capsys.readouterr().out
+
+
+def test_buzzer_plays_frequencies_in_order(lgpio, capsys):
+    assert cli.main(['buzzer', '440', '0', '880', '--duration', '0']) == 0
+    tx = [c[3:] for c in lgpio.calls if c[0] == 'tx_pwm']
+    assert tx[0] == (440, 50.0)
+    assert tx[1] == (0, 0)  # rest
+    assert tx[2] == (880, 50.0)
+    assert tx[-1] == (0, 0)
+    out = capsys.readouterr().out
+    assert '440 Hz' in out and '880 Hz' in out
+
+
+def test_buzzer_rejects_negative(lgpio, capsys):
+    assert cli.main(['buzzer', '--duration', '0', '--', '-5']) == 2
+    assert 'must not be negative' in capsys.readouterr().err
+    assert lgpio.calls == []

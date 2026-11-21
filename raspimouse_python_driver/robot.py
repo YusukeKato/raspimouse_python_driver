@@ -65,6 +65,8 @@ class RaspiMouse:
             self.switches = tuple(
                 Switch(self._backend.digital_input(pin, pull_up=True))
                 for pin in self.config.switch_pins)
+            self.buzzer = Buzzer(
+                self._backend.software_pwm(self.config.buzzer.pin), self.config.buzzer)
             # TODO: create the other devices as they are implemented.
         except BaseException:
             self.close()
@@ -77,16 +79,24 @@ class RaspiMouse:
         Calling this more than once is allowed.
         """
         # TODO: stop the motors and turn off the motor power first.
-        devices = (*self.leds, *self.switches)
+        devices = (*([self.buzzer] if self.buzzer else []), *self.leds, *self.switches)
+        self.buzzer = None
         self.leds = ()
         self.switches = ()
-        try:
-            for device in devices:
+        # Close every device even if one fails, then report the first error.
+        error: BaseException | None = None
+        for device in devices:
+            try:
                 device.close()
-        finally:
+            except Exception as e:
+                error = error or e
+        try:
             if self._backend is not None:
                 self._backend.close()
+        finally:
             self._is_open = False
+        if error is not None:
+            raise error
 
     def __enter__(self) -> 'RaspiMouse':
         """Open the devices."""

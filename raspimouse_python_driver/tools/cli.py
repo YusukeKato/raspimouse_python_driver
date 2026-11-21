@@ -31,8 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help='[s] how long to watch (default: 10.0)')
     sub.add_parser('sensor', help='print light sensor values')
 
-    buzzer = sub.add_parser('buzzer', help='sound the buzzer (0 stops)')
-    buzzer.add_argument('frequency', type=int)
+    buzzer = sub.add_parser('buzzer', help='sound the buzzer for a while')
+    buzzer.add_argument('frequency', type=float, nargs='+',
+                        help='[Hz] frequencies played in order (0 = rest)')
+    buzzer.add_argument('--duration', type=float, default=0.5,
+                        help='[s] length of each frequency (default: 0.5)')
 
     motor = sub.add_parser('motor', help='run the motors for a while')
     motor.add_argument('left', type=int, help='signed frequency [Hz]')
@@ -80,9 +83,24 @@ def _switch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _buzzer(args: argparse.Namespace) -> int:
+    negative = [f for f in args.frequency if f < 0]
+    if negative:
+        print(f'error: frequency must not be negative: {negative}', file=sys.stderr)
+        return 2
+    with RaspiMouse() as mouse:
+        for frequency in args.frequency:
+            mouse.buzzer.play(frequency)
+            print(f'{mouse.buzzer.frequency_hz:g} Hz for {args.duration} s', flush=True)
+            time.sleep(args.duration)
+        mouse.buzzer.stop()
+    return 0
+
+
 _COMMANDS = {
     'led': _led,
     'switch': _switch,
+    'buzzer': _buzzer,
 }
 
 

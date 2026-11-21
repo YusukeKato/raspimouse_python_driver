@@ -85,17 +85,40 @@ class MockI2cDevice:
 class MockPwmChannel:
     """Fake PWM channel that records frequency and duty ratio."""
 
+    def __init__(self) -> None:
+        """Create a stopped fake."""
+        self.frequency_hz: float = 0
+        self.duty_ratio: float = 0
+        # (frequency_hz, duty_ratio) for each change; (0, 0) means stopped.
+        self.history: list[tuple[float, float]] = []
+        self.closed = False
+
+    @property
+    def running(self) -> bool:
+        """Return True while output is on."""
+        return self.frequency_hz > 0
+
     def set_frequency(self, frequency_hz: float, duty_ratio: float = 0.5) -> None:
         """Record the output settings."""
-        raise NotImplementedError
+        self._check_open()
+        self.frequency_hz = frequency_hz
+        self.duty_ratio = duty_ratio
+        self.history.append((frequency_hz, duty_ratio))
 
     def stop(self) -> None:
         """Record that output stopped."""
-        raise NotImplementedError
+        self._check_open()
+        self.frequency_hz = 0
+        self.duty_ratio = 0
+        self.history.append((0, 0))
 
     def close(self) -> None:
         """Mark as closed."""
-        raise NotImplementedError
+        self.closed = True
+
+    def _check_open(self) -> None:
+        if self.closed:
+            raise DeviceError('PWM channel is already closed')
 
 
 class MockBackend:
@@ -105,10 +128,11 @@ class MockBackend:
         """Create the backend."""
         self.outputs: dict[int, MockDigitalOutput] = {}
         self.inputs: dict[int, MockDigitalInput] = {}
+        self.software_pwms: dict[int, MockPwmChannel] = {}
         self.closed = False
 
     def _claim(self, pin: int) -> None:
-        for lines in (self.outputs, self.inputs):
+        for lines in (self.outputs, self.inputs, self.software_pwms):
             if pin in lines and not lines[pin].closed:
                 raise DeviceError(f'GPIO{pin} is already in use')
         self.closed = False
@@ -129,7 +153,10 @@ class MockBackend:
 
     def software_pwm(self, pin: int) -> MockPwmChannel:
         """Create a fake PWM output for ``pin``."""
-        raise NotImplementedError
+        self._claim(pin)
+        pwm = MockPwmChannel()
+        self.software_pwms[pin] = pwm
+        return pwm
 
     def spi_device(self, bus: int, chip_select: int, max_speed_hz: int) -> MockSpiDevice:
         """Create a fake SPI device."""
@@ -145,6 +172,7 @@ class MockBackend:
 
     def close(self) -> None:
         """Close all fakes."""
-        for line in (*self.outputs.values(), *self.inputs.values()):
+        for line in (*self.outputs.values(), *self.inputs.values(),
+                     *self.software_pwms.values()):
             line.close()
         self.closed = True
