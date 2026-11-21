@@ -186,3 +186,11 @@ def test_battery_monitor_can_be_disabled():
     with RaspiMouse(RaspiMouseConfig(has_battery_monitor=False), backend) as mouse:
         assert mouse.battery is None
         assert mouse.light_sensors.read() == (0, 0, 0, 0)
+
+
+def test_drive_is_created_but_not_started():
+    backend = MockBackend()
+    with RaspiMouse(backend=backend) as mouse:
+        assert mouse.drive is not None
+        assert mouse.drive._thread is None
+    assert mouse.drive is None

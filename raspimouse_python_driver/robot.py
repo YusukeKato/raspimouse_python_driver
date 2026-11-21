@@ -9,6 +9,7 @@ from .devices.mcp3204 import Mcp3204, Mcp3208
 from .devices.motor import MotorPower, Motors, StepperMotor
 from .devices.pulse_counter import PulseCounter
 from .devices.switch import Switch
+from .drive import Drive
 from .exceptions import DeviceError
 from .hal.interfaces import Backend
 from .hal.linux import LinuxBackend
@@ -22,7 +23,7 @@ class RaspiMouse:
 
         with RaspiMouse() as mouse:
             mouse.motor_power.on()
-            mouse.motors.set_frequency(left=400, right=400)
+            mouse.drive.set_velocity(0.15, 0.0)  # 0.15 m/s forward (about 400 Hz)
             values = mouse.light_sensors.read()
 
     On close (or leaving the ``with`` block) the motors are stopped and the
@@ -49,6 +50,7 @@ class RaspiMouse:
         self.left_counter: PulseCounter | None = None
         self.right_counter: PulseCounter | None = None
         self.battery: Battery | None = None
+        self.drive: Drive | None = None
         # A/D converter shared by the light sensors and the battery monitor.
         self._adc: Mcp3204 | None = None
 
@@ -85,6 +87,9 @@ class RaspiMouse:
                     self.config.pulse_counters.left_address, self.motors.left)
                 self.right_counter = self._open_pulse_counter(
                     self.config.pulse_counters.right_address, self.motors.right)
+            # The control loop starts on first use, so opening does not touch the motors.
+            self.drive = Drive(self.motors, self.config.drive,
+                               self.left_counter, self.right_counter)
         except BaseException:
             self.close()
             raise
@@ -95,8 +100,9 @@ class RaspiMouse:
 
         Calling this more than once is allowed.
         """
-        # Stop the motors and cut their power first.
-        devices = (*([self.motors] if self.motors else []),
+        # Stop the velocity control, the motors and their power first.
+        devices = (*([self.drive] if self.drive else []),
+                   *([self.motors] if self.motors else []),
                    *([self.motor_power] if self.motor_power else []),
                    *([self.buzzer] if self.buzzer else []),
                    *([self.light_sensors] if self.light_sensors else []),
@@ -104,6 +110,7 @@ class RaspiMouse:
                    *([self.right_counter] if self.right_counter else []),
                    *([self._adc] if self._adc else []),
                    *self.leds, *self.switches)
+        self.drive = None
         self.battery = None
         self._adc = None
         self.left_counter = None

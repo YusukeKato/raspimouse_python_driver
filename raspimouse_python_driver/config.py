@@ -102,6 +102,31 @@ class BatteryConfig:
 
 
 @dataclass(frozen=True)
+class DriveConfig:
+    """
+    Differential drive: geometry, limits and control loop.
+
+    The geometry defaults are those of rt-net/raspimouse2. With them one
+    pulse moves a wheel 0.377 mm, so 1 m/s is about 2653 Hz.
+    """
+
+    wheel_diameter_m: float = 0.048
+    wheel_tread_m: float = 0.0925
+    pulses_per_revolution: float = 400.0
+    # Corrections of the travelled distance per wheel, used for odometry only.
+    odometry_scale_left: float = 1.0
+    odometry_scale_right: float = 1.0
+    # No wheel goes faster than this; both are scaled down together so that
+    # the path keeps its curvature. 1000 Hz is about 0.38 m/s.
+    max_wheel_frequency_hz: float = 1000.0
+    # How fast a wheel frequency may change. Larger steps make stepper motors lose steps.
+    max_wheel_acceleration_hz_s: float = 2000.0
+    # Slow down to a stop when no velocity command arrives for this long; 0 disables.
+    command_timeout_s: float = 0.5
+    control_rate_hz: float = 50.0
+
+
+@dataclass(frozen=True)
 class RaspiMouseConfig:
     """Complete hardware configuration."""
 
@@ -119,3 +144,4 @@ class RaspiMouseConfig:
     battery: BatteryConfig = field(default_factory=BatteryConfig)
     # Set False on models without the battery voltage monitor (before V3).
     has_battery_monitor: bool = True
+    drive: DriveConfig = field(default_factory=DriveConfig)

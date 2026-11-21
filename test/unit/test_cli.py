@@ -113,3 +113,15 @@ def test_battery_prints_voltage(lgpio, capsys):
     lgpio.spi_responder = lambda data: bytes([0, 2258 >> 8, 2258 & 0xFF])
     assert cli.main(['battery']) == 0
     assert '11.10 V  (ADC 2258)' in capsys.readouterr().out
+
+
+def test_drive_runs_and_prints_odometry(lgpio, sysfs_pwm, capsys):
+    assert cli.main(['drive', '0.1', '0', '--duration', '0.3']) == 0
+    out = capsys.readouterr().out
+    assert out.startswith('x ') and 'theta' in out
+    for channel in ('pwm0', 'pwm1'):
+        period = int((sysfs_pwm / channel / 'period').read_text())
+        assert period > 0          # the wheels were driven
+        assert (sysfs_pwm / channel / 'enable').read_text().strip() == '0'
+    enable = [c[3] for c in lgpio.calls if c[0] == 'gpio_write' and c[2] == 5]
+    assert enable[0] == 1 and enable[-1] == 0

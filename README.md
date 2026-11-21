@@ -64,13 +64,23 @@ export PYTHONPATH=/path/to/raspimouse_python_driver:$PYTHONPATH
 ```
 
 ```python
+import time
+
 from raspimouse_python_driver import RaspiMouse
 
 with RaspiMouse() as mouse:
-    mouse.motor_power.on()
-    mouse.motors.set_frequency(left=400, right=400)
     print(mouse.light_sensors.read())
+    mouse.motor_power.on()
+    for _ in range(20):                       # 2 s forward at 0.15 m/s (about 400 Hz)
+        mouse.drive.set_velocity(0.15, 0.0)   # linear [m/s], angular [rad/s]
+        time.sleep(0.1)
+    mouse.drive.stop()
+    time.sleep(0.5)
+    print(mouse.drive.odometry())
 ```
+
+`mouse.drive` stops the robot when no velocity command arrives for 0.5 s, so send commands repeatedly while moving.
+Wheel geometry, speed and acceleration limits are in `DriveConfig` (defaults from [rt-net/raspimouse2](https://github.com/rt-net/raspimouse2)).
 
 ## Use with ROS 2
 
@@ -89,34 +99,55 @@ Add the dependency to the `package.xml` of your package:
 <exec_depend>raspimouse_python_driver</exec_depend>
 ```
 
-Example node:
+Example node that drives by `cmd_vel` and publishes the odometry:
 
 ```python
+import math
+
 import rclpy
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 
 from raspimouse_python_driver import RaspiMouse
 
 
-class LightSensorNode(Node):
+class DriveNode(Node):
 
     def __init__(self):
-        super().__init__('light_sensor_node')
+        super().__init__('drive_node')
         self.mouse = RaspiMouse()
         self.mouse.open()
-        self.timer = self.create_timer(0.1, self.on_timer)
+        self.mouse.motor_power.on()
+        self.create_subscription(Twist, 'cmd_vel', self.on_cmd_vel, 10)
+        self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
+        self.create_timer(0.05, self.publish_odom)
 
-    def on_timer(self):
-        self.get_logger().info(str(self.mouse.light_sensors.read()))
+    def on_cmd_vel(self, msg):
+        self.mouse.drive.set_velocity(msg.linear.x, msg.angular.z)
+
+    def publish_odom(self):
+        odom = self.mouse.drive.odometry()
+        msg = Odometry()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'odom'
+        msg.child_frame_id = 'base_footprint'
+        msg.pose.pose.position.x = odom.x
+        msg.pose.pose.position.y = odom.y
+        msg.pose.pose.orientation.z = math.sin(odom.theta / 2)
+        msg.pose.pose.orientation.w = math.cos(odom.theta / 2)
+        msg.twist.twist.linear.x = odom.linear
+        msg.twist.twist.angular.z = odom.angular
+        self.odom_pub.publish(msg)
 
     def destroy_node(self):
-        self.mouse.close()
+        self.mouse.close()   # stops the motors and cuts their power
         super().destroy_node()
 
 
 def main():
     rclpy.init()
-    node = LightSensorNode()
+    node = DriveNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -146,10 +177,10 @@ Hardware tests on the robot. LEDs light up and the buzzer sounds; do not touch t
 RASPIMOUSE_HARDWARE_TEST=1 python3 -m pytest -v test/hardware
 ```
 
-Motor test. Turn on the motor power switch first; the robot moves forward, backward and turns.
+Motor and driving tests. Turn on the motor power switch first and put the robot on the floor; it moves forward, backward and turns.
 
 ```bash
-RASPIMOUSE_HARDWARE_TEST=1 RASPIMOUSE_MOTOR_TEST=1 python3 -m pytest -v test/hardware/test_motor_hw.py
+RASPIMOUSE_HARDWARE_TEST=1 RASPIMOUSE_MOTOR_TEST=1 python3 -m pytest -v -s test/hardware/test_motor_hw.py test/hardware/test_drive_hw.py
 ```
 
 Check each device by hand with the command line tool:
@@ -172,6 +203,14 @@ python3 -m raspimouse_python_driver.tools.cli sensor --watch --duration 15
 
 ```bash
 python3 -m raspimouse_python_driver.tools.cli motor 400 400 --duration 1
+```
+
+```bash
+python3 -m raspimouse_python_driver.tools.cli drive 0.15 0 --duration 2
+```
+
+```bash
+python3 -m raspimouse_python_driver.tools.cli drive 0 3.14 --duration 0.5
 ```
 
 ```bash

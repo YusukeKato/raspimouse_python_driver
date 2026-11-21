@@ -5,6 +5,7 @@ Run as ``raspimouse-cli`` or ``python3 -m raspimouse_python_driver.tools.cli``.
 """
 
 import argparse
+import math
 import sys
 import time
 
@@ -49,6 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
     motor.add_argument('left', type=float, help='signed step frequency [Hz]')
     motor.add_argument('right', type=float, help='signed step frequency [Hz]')
     motor.add_argument('--duration', type=float, default=1.0, help='[s] (default: 1.0)')
+
+    drive = sub.add_parser('drive', help='drive at a velocity for a while (the robot moves!)')
+    drive.add_argument('linear', type=float, help='forward velocity [m/s]')
+    drive.add_argument('angular', type=float, help='counterclockwise angular velocity [rad/s]')
+    drive.add_argument('--duration', type=float, default=1.0, help='[s] (default: 1.0)')
 
     battery = sub.add_parser(
         'battery', help='print the battery (or AC adapter) voltage (V3 only)')
@@ -146,6 +152,27 @@ def _motor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _drive(args: argparse.Namespace) -> int:
+    with RaspiMouse() as mouse:
+        mouse.motor_power.on()
+        drive = mouse.drive
+        end = time.monotonic() + args.duration
+        # Repeat the command like a ROS node does; the drive stops when commands stop.
+        while time.monotonic() < end:
+            drive.set_velocity(args.linear, args.angular)
+            time.sleep(0.05)
+        drive.stop()
+        deadline = time.monotonic() + 3.0
+        while drive.wheel_frequencies != (0.0, 0.0) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        time.sleep(0.1)  # let odometry catch up with the last pulses
+        odom = drive.odometry()
+        mouse.motor_power.off()
+        print(f'x {odom.x:+.3f} m, y {odom.y:+.3f} m, '
+              f'theta {math.degrees(odom.theta):+.1f} deg', flush=True)
+    return 0
+
+
 def _battery(args: argparse.Namespace) -> int:
     with RaspiMouse() as mouse:
         if mouse.battery is None:
@@ -192,6 +219,7 @@ _COMMANDS = {
     'motor': _motor,
     'counter': _counter,
     'battery': _battery,
+    'drive': _drive,
 }
 
 
