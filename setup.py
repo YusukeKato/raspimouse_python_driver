@@ -4,7 +4,7 @@ package_name = 'raspimouse_python_driver'
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='1.0.0',
     packages=find_packages(exclude=['test', 'test.*']),
     # Used only by colcon / ament. Harmless when installed with pip.
     data_files=[
