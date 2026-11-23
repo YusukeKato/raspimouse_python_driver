@@ -80,3 +80,19 @@ def test_close():
     c.counter.close()  # second close is allowed
     with pytest.raises(DeviceError):
         c.counter.read_signed()
+
+
+def test_a_bad_value_is_undone_by_the_next_reading():
+    # Even if a wrong value got through, the signed difference undoes it
+    # instead of adding about 65000 pulses.
+    c = Counter(0x0200)
+    c.set_raw(0x0100)          # 256 lower than before
+    assert c.counter.read_signed() == -256
+    c.set_raw(0x0205)
+    assert c.counter.read_signed() == 5
+
+
+def test_wrap_around_still_counts_up():
+    c = Counter(0xFFF0)
+    c.set_raw(0x0010)
+    assert c.counter.read_signed() == 0x20

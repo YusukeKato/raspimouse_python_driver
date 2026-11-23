@@ -18,6 +18,9 @@ class PulseCounter:
     counter. Call :meth:`update` right before the direction changes so that
     earlier pulses are counted with the old direction (RaspiMouse does this).
     The signed count starts at 0 when the counter is created. Thread safe.
+
+    Update at least every 3 s at full speed (10 kHz), or wraps of the 16 bit
+    counter are miscounted.
     """
 
     MAX_RAW = 0xFFFF
@@ -77,17 +80,29 @@ class PulseCounter:
 
     def _update(self) -> None:
         raw = self._read_raw()
-        # Increments since the last read; also right across the 0xFFFF -> 0 wrap.
-        # (rtmouse adds 65535 here, which loses one pulse per wrap.)
-        increment = (raw - self._last_raw) % self._RANGE
+        # The counter only counts up, but take the difference as signed so that
+        # a bad reading is undone by the next one instead of adding ~65000
+        # pulses. Wraps of the counter (0xFFFF -> 0) are handled the same way.
+        increment = self._difference(raw, self._last_raw)
         self._last_raw = raw
         self._signed += increment if self._is_forward() else -increment
 
     def _read_raw(self) -> int:
-        # Same order as rtmouse: LSB first, then MSB.
+        # Same order as rtmouse: LSB first, then MSB. The two bytes come from
+        # separate I2C transfers, but the counter firmware keeps them
+        # consistent: with 5 kHz pulses (an LSB carry every 51 ms) and about
+        # 0.7 ms between the two transfers, about 1700 readings per counter
+        # gave no value off by 256, where about 24 were expected otherwise
+        # (issue #2). The signed difference in _update() guards against a bad
+        # reading anyway.
         lsb = self._i2c.read_byte_data(self._config.lsb_register)
         msb = self._i2c.read_byte_data(self._config.msb_register)
         return ((msb & 0xFF) << 8) | (lsb & 0xFF)
+
+    @classmethod
+    def _difference(cls, raw: int, previous: int) -> int:
+        """Return ``raw - previous`` as -32768..32767, across the 16 bit wrap."""
+        return (raw - previous + cls._RANGE // 2) % cls._RANGE - cls._RANGE // 2
 
     def _check_open(self) -> None:
         if self._closed:
